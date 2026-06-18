@@ -378,15 +378,15 @@ Drug-to-PKML mapping:</code></pre>
 <span id="cb18-6"><a href="#cb18-6" aria-hidden="true" tabindex="-1"></a>            <span class="at">by =</span> <span class="fu">c</span>(<span class="st">"Molecule"</span> <span class="ot">=</span> <span class="st">"Drug.Name"</span>))</span>
 <span id="cb18-7"><a href="#cb18-7" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb18-8"><a href="#cb18-8" aria-hidden="true" tabindex="-1"></a><span class="co"># Human scenarios — driven by human observed data (clinical doses, NOT monkey doses)</span></span>
-<span id="cb18-9"><a href="#cb18-9" aria-hidden="true" tabindex="-1"></a><span class="co"># Adalimumab excluded: human observed data is SC 40 mg (0.57 mg/kg); the PBPK</span></span>
-<span id="cb18-10"><a href="#cb18-10" aria-hidden="true" tabindex="-1"></a><span class="co"># model is IV-only, so a direct PK comparison is not meaningful.</span></span>
+<span id="cb18-9"><a href="#cb18-9" aria-hidden="true" tabindex="-1"></a><span class="co"># SC routes excluded: the PBPK model is IV-only; SC data cannot be compared.</span></span>
+<span id="cb18-10"><a href="#cb18-10" aria-hidden="true" tabindex="-1"></a><span class="co"># Adalimumab IV data (Broeder 2001, 5 doses) is now included.</span></span>
 <span id="cb18-11"><a href="#cb18-11" aria-hidden="true" tabindex="-1"></a>dat_human_obs <span class="ot">&lt;-</span> <span class="fu">read.csv</span>(</span>
 <span id="cb18-12"><a href="#cb18-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">file.path</span>(datdir, <span class="st">"Human"</span>, <span class="st">"mAb_data_human.csv"</span>),</span>
 <span id="cb18-13"><a href="#cb18-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">stringsAsFactors =</span> <span class="cn">FALSE</span>, <span class="at">na.strings =</span> <span class="st">""</span></span>
 <span id="cb18-14"><a href="#cb18-14" aria-hidden="true" tabindex="-1"></a>)</span>
 <span id="cb18-15"><a href="#cb18-15" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb18-16"><a href="#cb18-16" aria-hidden="true" tabindex="-1"></a>scenarios_human <span class="ot">&lt;-</span> dat_human_obs <span class="sc">%&gt;%</span></span>
-<span id="cb18-17"><a href="#cb18-17" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(Molecule <span class="sc">!=</span> <span class="st">"Adalimumab"</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb18-17"><a href="#cb18-17" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(<span class="sc">!</span><span class="fu">grepl</span>(<span class="st">"^SC$"</span>, <span class="fu">trimws</span>(Route), <span class="at">ignore.case =</span> <span class="cn">TRUE</span>)) <span class="sc">%&gt;%</span></span>
 <span id="cb18-18"><a href="#cb18-18" aria-hidden="true" tabindex="-1"></a>  <span class="fu">distinct</span>(Molecule, Dose) <span class="sc">%&gt;%</span></span>
 <span id="cb18-19"><a href="#cb18-19" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">Species.label =</span> <span class="st">"Human"</span>) <span class="sc">%&gt;%</span></span>
 <span id="cb18-20"><a href="#cb18-20" aria-hidden="true" tabindex="-1"></a>  <span class="fu">left_join</span>(drug_pkml_human <span class="sc">%&gt;%</span> <span class="fu">select</span>(Drug.Name, PKML.File),</span>
@@ -404,88 +404,98 @@ Drug-to-PKML mapping:</code></pre>
 <span id="cb18-32"><a href="#cb18-32" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"</span><span class="sc">\n</span><span class="st">Scenarios to configure:"</span>, <span class="fu">nrow</span>(scenarios), <span class="st">"</span><span class="sc">\n</span><span class="st">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-stdout">
 <pre><code>
-Scenarios to configure: 38 </code></pre>
+Scenarios to configure: 43 </code></pre>
 </div>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb20"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a><span class="fu">print</span>(scenarios <span class="sc">%&gt;%</span> <span class="fu">select</span>(Molecule, Species.label, Dose, PKML.File))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-stdout">
 <pre><code>        Molecule Species.label Dose
-1     Adalimumab        Monkey  3.0
-2   Atezolizumab         Human  1.0
-3   Atezolizumab         Human  3.0
-4   Atezolizumab         Human 10.0
-5   Atezolizumab         Human 15.0
-6   Atezolizumab         Human 20.0
-7   Atezolizumab        Monkey  0.5
-8   Atezolizumab        Monkey  5.0
-9   Atezolizumab        Monkey 20.0
-10      Avelumab         Human  1.0
-11      Avelumab         Human  3.0
-12      Avelumab         Human 10.0
-13      Avelumab         Human 20.0
-14      Avelumab        Monkey  5.0
-15   Bevacizumab         Human 15.0
-16   Bevacizumab        Monkey  4.0
-17   Bevacizumab        Monkey  5.0
-18     Golimumab         Human  0.1
-19     Golimumab         Human  0.3
-20     Golimumab         Human  1.0
-21     Golimumab         Human  3.0
-22     Golimumab         Human  6.0
-23     Golimumab         Human 10.0
-24     Golimumab        Monkey  3.0
-25     Nivolumab         Human  1.0
-26     Nivolumab         Human  3.0
-27     Nivolumab         Human  4.0
-28     Nivolumab         Human  6.0
-29     Nivolumab         Human 10.0
-30     Nivolumab         Human 20.0
-31     Nivolumab        Monkey  1.0
-32     Nivolumab        Monkey 10.0
-33 Pembrolizumab         Human  3.0
-34 Pembrolizumab        Monkey  0.3
-35 Pembrolizumab        Monkey  3.0
-36 Pembrolizumab        Monkey 30.0
-37   Tocilizumab         Human  8.0
-38   Tocilizumab        Monkey 10.0
+1     Adalimumab         Human  0.5
+2     Adalimumab         Human  1.0
+3     Adalimumab         Human  3.0
+4     Adalimumab         Human  5.0
+5     Adalimumab         Human 10.0
+6     Adalimumab        Monkey  3.0
+7   Atezolizumab         Human  1.0
+8   Atezolizumab         Human  3.0
+9   Atezolizumab         Human 10.0
+10  Atezolizumab         Human 15.0
+11  Atezolizumab         Human 20.0
+12  Atezolizumab        Monkey  0.5
+13  Atezolizumab        Monkey  5.0
+14  Atezolizumab        Monkey 20.0
+15      Avelumab         Human  1.0
+16      Avelumab         Human  3.0
+17      Avelumab         Human 10.0
+18      Avelumab         Human 20.0
+19      Avelumab        Monkey  5.0
+20   Bevacizumab         Human 15.0
+21   Bevacizumab        Monkey  4.0
+22   Bevacizumab        Monkey  5.0
+23     Golimumab         Human  0.1
+24     Golimumab         Human  0.3
+25     Golimumab         Human  1.0
+26     Golimumab         Human  3.0
+27     Golimumab         Human  6.0
+28     Golimumab         Human 10.0
+29     Golimumab        Monkey  3.0
+30     Nivolumab         Human  1.0
+31     Nivolumab         Human  3.0
+32     Nivolumab         Human  4.0
+33     Nivolumab         Human  6.0
+34     Nivolumab         Human 10.0
+35     Nivolumab         Human 20.0
+36     Nivolumab        Monkey  1.0
+37     Nivolumab        Monkey 10.0
+38 Pembrolizumab         Human  3.0
+39 Pembrolizumab        Monkey  0.3
+40 Pembrolizumab        Monkey  3.0
+41 Pembrolizumab        Monkey 30.0
+42   Tocilizumab         Human  8.0
+43   Tocilizumab        Monkey 10.0
                                             PKML.File
-1   PKML_Files_Monkey/PKML_Files_Monkey/AntiTNFA.pkml
-2     PKML_Files_Human/PKML_Files_Human/AntiPDL1.pkml
-3     PKML_Files_Human/PKML_Files_Human/AntiPDL1.pkml
-4     PKML_Files_Human/PKML_Files_Human/AntiPDL1.pkml
-5     PKML_Files_Human/PKML_Files_Human/AntiPDL1.pkml
-6     PKML_Files_Human/PKML_Files_Human/AntiPDL1.pkml
-7   PKML_Files_Monkey/PKML_Files_Monkey/AntiPDL1.pkml
-8   PKML_Files_Monkey/PKML_Files_Monkey/AntiPDL1.pkml
-9   PKML_Files_Monkey/PKML_Files_Monkey/AntiPDL1.pkml
+1     PKML_Files_Human/PKML_Files_Human/AntiTNFA.pkml
+2     PKML_Files_Human/PKML_Files_Human/AntiTNFA.pkml
+3     PKML_Files_Human/PKML_Files_Human/AntiTNFA.pkml
+4     PKML_Files_Human/PKML_Files_Human/AntiTNFA.pkml
+5     PKML_Files_Human/PKML_Files_Human/AntiTNFA.pkml
+6   PKML_Files_Monkey/PKML_Files_Monkey/AntiTNFA.pkml
+7     PKML_Files_Human/PKML_Files_Human/AntiPDL1.pkml
+8     PKML_Files_Human/PKML_Files_Human/AntiPDL1.pkml
+9     PKML_Files_Human/PKML_Files_Human/AntiPDL1.pkml
 10    PKML_Files_Human/PKML_Files_Human/AntiPDL1.pkml
 11    PKML_Files_Human/PKML_Files_Human/AntiPDL1.pkml
-12    PKML_Files_Human/PKML_Files_Human/AntiPDL1.pkml
-13    PKML_Files_Human/PKML_Files_Human/AntiPDL1.pkml
+12  PKML_Files_Monkey/PKML_Files_Monkey/AntiPDL1.pkml
+13  PKML_Files_Monkey/PKML_Files_Monkey/AntiPDL1.pkml
 14  PKML_Files_Monkey/PKML_Files_Monkey/AntiPDL1.pkml
-15   PKML_Files_Human/PKML_Files_Human/AntiVEGFA.pkml
-16 PKML_Files_Monkey/PKML_Files_Monkey/AntiVEGFA.pkml
-17 PKML_Files_Monkey/PKML_Files_Monkey/AntiVEGFA.pkml
-18    PKML_Files_Human/PKML_Files_Human/AntiTNFA.pkml
-19    PKML_Files_Human/PKML_Files_Human/AntiTNFA.pkml
-20    PKML_Files_Human/PKML_Files_Human/AntiTNFA.pkml
-21    PKML_Files_Human/PKML_Files_Human/AntiTNFA.pkml
-22    PKML_Files_Human/PKML_Files_Human/AntiTNFA.pkml
+15    PKML_Files_Human/PKML_Files_Human/AntiPDL1.pkml
+16    PKML_Files_Human/PKML_Files_Human/AntiPDL1.pkml
+17    PKML_Files_Human/PKML_Files_Human/AntiPDL1.pkml
+18    PKML_Files_Human/PKML_Files_Human/AntiPDL1.pkml
+19  PKML_Files_Monkey/PKML_Files_Monkey/AntiPDL1.pkml
+20   PKML_Files_Human/PKML_Files_Human/AntiVEGFA.pkml
+21 PKML_Files_Monkey/PKML_Files_Monkey/AntiVEGFA.pkml
+22 PKML_Files_Monkey/PKML_Files_Monkey/AntiVEGFA.pkml
 23    PKML_Files_Human/PKML_Files_Human/AntiTNFA.pkml
-24  PKML_Files_Monkey/PKML_Files_Monkey/AntiTNFA.pkml
-25     PKML_Files_Human/PKML_Files_Human/AntiPD1.pkml
-26     PKML_Files_Human/PKML_Files_Human/AntiPD1.pkml
-27     PKML_Files_Human/PKML_Files_Human/AntiPD1.pkml
-28     PKML_Files_Human/PKML_Files_Human/AntiPD1.pkml
-29     PKML_Files_Human/PKML_Files_Human/AntiPD1.pkml
+24    PKML_Files_Human/PKML_Files_Human/AntiTNFA.pkml
+25    PKML_Files_Human/PKML_Files_Human/AntiTNFA.pkml
+26    PKML_Files_Human/PKML_Files_Human/AntiTNFA.pkml
+27    PKML_Files_Human/PKML_Files_Human/AntiTNFA.pkml
+28    PKML_Files_Human/PKML_Files_Human/AntiTNFA.pkml
+29  PKML_Files_Monkey/PKML_Files_Monkey/AntiTNFA.pkml
 30     PKML_Files_Human/PKML_Files_Human/AntiPD1.pkml
-31   PKML_Files_Monkey/PKML_Files_Monkey/AntiPD1.pkml
-32   PKML_Files_Monkey/PKML_Files_Monkey/AntiPD1.pkml
+31     PKML_Files_Human/PKML_Files_Human/AntiPD1.pkml
+32     PKML_Files_Human/PKML_Files_Human/AntiPD1.pkml
 33     PKML_Files_Human/PKML_Files_Human/AntiPD1.pkml
-34   PKML_Files_Monkey/PKML_Files_Monkey/AntiPD1.pkml
-35   PKML_Files_Monkey/PKML_Files_Monkey/AntiPD1.pkml
+34     PKML_Files_Human/PKML_Files_Human/AntiPD1.pkml
+35     PKML_Files_Human/PKML_Files_Human/AntiPD1.pkml
 36   PKML_Files_Monkey/PKML_Files_Monkey/AntiPD1.pkml
-37    PKML_Files_Human/PKML_Files_Human/AntiIL6R.pkml
-38  PKML_Files_Monkey/PKML_Files_Monkey/AntiIL6R.pkml</code></pre>
+37   PKML_Files_Monkey/PKML_Files_Monkey/AntiPD1.pkml
+38     PKML_Files_Human/PKML_Files_Human/AntiPD1.pkml
+39   PKML_Files_Monkey/PKML_Files_Monkey/AntiPD1.pkml
+40   PKML_Files_Monkey/PKML_Files_Monkey/AntiPD1.pkml
+41   PKML_Files_Monkey/PKML_Files_Monkey/AntiPD1.pkml
+42    PKML_Files_Human/PKML_Files_Human/AntiIL6R.pkml
+43  PKML_Files_Monkey/PKML_Files_Monkey/AntiIL6R.pkml</code></pre>
 </div>
 </div>
 <div class="cell">
@@ -635,17 +645,17 @@ Scenarios to configure: 38 </code></pre>
 <tr class="odd">
 <td style="text-align: left;">Applications.xlsx</td>
 <td style="text-align: left;">TRUE</td>
-<td style="text-align: right;">68.3</td>
+<td style="text-align: right;">76.6</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">ModelParameters.xlsx</td>
 <td style="text-align: left;">TRUE</td>
-<td style="text-align: right;">32.8</td>
+<td style="text-align: right;">34.5</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">Scenarios.xlsx</td>
 <td style="text-align: left;">TRUE</td>
-<td style="text-align: right;">10.2</td>
+<td style="text-align: right;">10.4</td>
 </tr>
 </tbody>
 </table>
