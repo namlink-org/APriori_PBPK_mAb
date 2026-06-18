@@ -257,15 +257,15 @@ scenarios_monkey <- dat %>%
             by = c("Molecule" = "Drug.Name"))
 
 # Human scenarios — driven by human observed data (clinical doses, NOT monkey doses)
-# Adalimumab excluded: human observed data is SC 40 mg (0.57 mg/kg); the PBPK
-# model is IV-only, so a direct PK comparison is not meaningful.
+# SC routes excluded: the PBPK model is IV-only; SC data cannot be compared.
+# Adalimumab IV data (Broeder 2001, 5 doses) is now included.
 dat_human_obs <- read.csv(
   file.path(datdir, "Human", "mAb_data_human.csv"),
   stringsAsFactors = FALSE, na.strings = ""
 )
 
 scenarios_human <- dat_human_obs %>%
-  filter(Molecule != "Adalimumab") %>%
+  filter(!grepl("^SC$", trimws(Route), ignore.case = TRUE)) %>%
   distinct(Molecule, Dose) %>%
   mutate(Species.label = "Human") %>%
   left_join(drug_pkml_human %>% select(Drug.Name, PKML.File),

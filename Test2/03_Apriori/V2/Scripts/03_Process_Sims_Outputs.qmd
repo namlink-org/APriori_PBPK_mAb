@@ -170,8 +170,8 @@ obs_human <- obs_human_raw %>%
     Conc_ugmL = as.numeric(Measurement)
   ) %>%
   filter(!is.na(Conc_ugmL), Conc_ugmL > 0) %>%
-  # Adalimumab human data is SC route; model is IV-only — exclude from comparison
-  filter(Molecule != "Adalimumab")
+  # Exclude SC routes — IV model cannot be compared against subcutaneous data
+  filter(!grepl("^SC$", trimws(Route), ignore.case = TRUE))
 
 # MW lookup: used for unit conversion of simulation output (µmol/L → µg/mL).
 # Built from both CSVs so that Golimumab (monkey-only observed) and all human
@@ -496,8 +496,8 @@ metrics_tbl %>%
 Fold errors are shown for scenarios where observed human data is available at a
 matching dose. Rows without observed data are shown as a priori predictions only.
 Note: Pembrolizumab observed data begins at day 19 (457 h) so AUC fold error is
-not meaningful (partial AUC only). Adalimumab observed data is SC 40 mg (0.57 mg/kg)
-vs simulation at 3 mg/kg IV — included for reference only.
+not meaningful (partial AUC only). Adalimumab IV data is from Broeder 2001 Fig 1
+(0.5, 1, 3, 5, 10 mg/kg IV single dose); SC data excluded from comparison.
 
 ```{r}
 #| label: metrics-table-human
