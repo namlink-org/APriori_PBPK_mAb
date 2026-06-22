@@ -170,6 +170,7 @@ obs_human <- obs_human_raw %>%
     Conc_ugmL = as.numeric(Measurement)
   ) %>%
   filter(!is.na(Conc_ugmL), Conc_ugmL > 0) %>%
+  filter(Time_h <= 672) %>%
   # Exclude SC routes — IV model cannot be compared against subcutaneous data
   filter(!grepl("^SC$", trimws(Route), ignore.case = TRUE))
 
@@ -351,7 +352,9 @@ pk_plots <- lapply(molecules, function(mol) {
       width     = 0.8, linewidth = 0.45
     ) +
 
-    facet_wrap(~ Species, scales = "free_x") +
+    coord_cartesian(xlim = c(0, 672)) +
+    coord_cartesian(xlim = c(0, 672)) +
+    facet_wrap(~ Species, scales = "free_y") +
     scale_y_log10(limits = c(0.1, NA), 
       labels = label_number(drop0trailing = TRUE),
       breaks = 10^seq(-2, 4)

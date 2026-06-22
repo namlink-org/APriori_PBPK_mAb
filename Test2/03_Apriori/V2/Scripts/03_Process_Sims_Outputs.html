@@ -266,18 +266,19 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb2-34"><a href="#cb2-34" aria-hidden="true" tabindex="-1"></a>    <span class="at">Conc_ugmL =</span> <span class="fu">as.numeric</span>(Measurement)</span>
 <span id="cb2-35"><a href="#cb2-35" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">%&gt;%</span></span>
 <span id="cb2-36"><a href="#cb2-36" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(<span class="sc">!</span><span class="fu">is.na</span>(Conc_ugmL), Conc_ugmL <span class="sc">&gt;</span> <span class="dv">0</span>) <span class="sc">%&gt;%</span></span>
-<span id="cb2-37"><a href="#cb2-37" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Exclude SC routes — IV model cannot be compared against subcutaneous data</span></span>
-<span id="cb2-38"><a href="#cb2-38" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(<span class="sc">!</span><span class="fu">grepl</span>(<span class="st">"^SC$"</span>, <span class="fu">trimws</span>(Route), <span class="at">ignore.case =</span> <span class="cn">TRUE</span>))</span>
-<span id="cb2-39"><a href="#cb2-39" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-40"><a href="#cb2-40" aria-hidden="true" tabindex="-1"></a><span class="co"># MW lookup: used for unit conversion of simulation output (µmol/L → µg/mL).</span></span>
-<span id="cb2-41"><a href="#cb2-41" aria-hidden="true" tabindex="-1"></a><span class="co"># Built from both CSVs so that Golimumab (monkey-only observed) and all human</span></span>
-<span id="cb2-42"><a href="#cb2-42" aria-hidden="true" tabindex="-1"></a><span class="co"># drugs are covered.</span></span>
-<span id="cb2-43"><a href="#cb2-43" aria-hidden="true" tabindex="-1"></a>mw_lookup <span class="ot">&lt;-</span> <span class="fu">bind_rows</span>(</span>
-<span id="cb2-44"><a href="#cb2-44" aria-hidden="true" tabindex="-1"></a>  obs_raw       <span class="sc">%&gt;%</span> <span class="fu">distinct</span>(Molecule, <span class="at">MW =</span> Molecular.Weight),</span>
-<span id="cb2-45"><a href="#cb2-45" aria-hidden="true" tabindex="-1"></a>  obs_human_raw <span class="sc">%&gt;%</span> <span class="fu">distinct</span>(Molecule, <span class="at">MW =</span> Molecular.Weight)</span>
-<span id="cb2-46"><a href="#cb2-46" aria-hidden="true" tabindex="-1"></a>) <span class="sc">%&gt;%</span></span>
-<span id="cb2-47"><a href="#cb2-47" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">MW =</span> <span class="fu">as.numeric</span>(MW)) <span class="sc">%&gt;%</span></span>
-<span id="cb2-48"><a href="#cb2-48" aria-hidden="true" tabindex="-1"></a>  <span class="fu">distinct</span>(Molecule, <span class="at">.keep_all =</span> <span class="cn">TRUE</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<span id="cb2-37"><a href="#cb2-37" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(Time_h <span class="sc">&lt;=</span> <span class="dv">672</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb2-38"><a href="#cb2-38" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Exclude SC routes — IV model cannot be compared against subcutaneous data</span></span>
+<span id="cb2-39"><a href="#cb2-39" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(<span class="sc">!</span><span class="fu">grepl</span>(<span class="st">"^SC$"</span>, <span class="fu">trimws</span>(Route), <span class="at">ignore.case =</span> <span class="cn">TRUE</span>))</span>
+<span id="cb2-40"><a href="#cb2-40" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-41"><a href="#cb2-41" aria-hidden="true" tabindex="-1"></a><span class="co"># MW lookup: used for unit conversion of simulation output (µmol/L → µg/mL).</span></span>
+<span id="cb2-42"><a href="#cb2-42" aria-hidden="true" tabindex="-1"></a><span class="co"># Built from both CSVs so that Golimumab (monkey-only observed) and all human</span></span>
+<span id="cb2-43"><a href="#cb2-43" aria-hidden="true" tabindex="-1"></a><span class="co"># drugs are covered.</span></span>
+<span id="cb2-44"><a href="#cb2-44" aria-hidden="true" tabindex="-1"></a>mw_lookup <span class="ot">&lt;-</span> <span class="fu">bind_rows</span>(</span>
+<span id="cb2-45"><a href="#cb2-45" aria-hidden="true" tabindex="-1"></a>  obs_raw       <span class="sc">%&gt;%</span> <span class="fu">distinct</span>(Molecule, <span class="at">MW =</span> Molecular.Weight),</span>
+<span id="cb2-46"><a href="#cb2-46" aria-hidden="true" tabindex="-1"></a>  obs_human_raw <span class="sc">%&gt;%</span> <span class="fu">distinct</span>(Molecule, <span class="at">MW =</span> Molecular.Weight)</span>
+<span id="cb2-47"><a href="#cb2-47" aria-hidden="true" tabindex="-1"></a>) <span class="sc">%&gt;%</span></span>
+<span id="cb2-48"><a href="#cb2-48" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">MW =</span> <span class="fu">as.numeric</span>(MW)) <span class="sc">%&gt;%</span></span>
+<span id="cb2-49"><a href="#cb2-49" aria-hidden="true" tabindex="-1"></a>  <span class="fu">distinct</span>(Molecule, <span class="at">.keep_all =</span> <span class="cn">TRUE</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
 </section>
 <section id="simulation-results-latest-run" class="level2">
@@ -435,34 +436,36 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb5-35"><a href="#cb5-35" aria-hidden="true" tabindex="-1"></a>      <span class="at">width     =</span> <span class="fl">0.8</span>, <span class="at">linewidth =</span> <span class="fl">0.45</span></span>
 <span id="cb5-36"><a href="#cb5-36" aria-hidden="true" tabindex="-1"></a>    ) <span class="sc">+</span></span>
 <span id="cb5-37"><a href="#cb5-37" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb5-38"><a href="#cb5-38" aria-hidden="true" tabindex="-1"></a>    <span class="fu">facet_wrap</span>(<span class="sc">~</span> Species, <span class="at">scales =</span> <span class="st">"free_x"</span>) <span class="sc">+</span></span>
-<span id="cb5-39"><a href="#cb5-39" aria-hidden="true" tabindex="-1"></a>    <span class="fu">scale_y_log10</span>(<span class="at">limits =</span> <span class="fu">c</span>(<span class="fl">0.1</span>, <span class="cn">NA</span>), </span>
-<span id="cb5-40"><a href="#cb5-40" aria-hidden="true" tabindex="-1"></a>      <span class="at">labels =</span> <span class="fu">label_number</span>(<span class="at">drop0trailing =</span> <span class="cn">TRUE</span>),</span>
-<span id="cb5-41"><a href="#cb5-41" aria-hidden="true" tabindex="-1"></a>      <span class="at">breaks =</span> <span class="dv">10</span><span class="sc">^</span><span class="fu">seq</span>(<span class="sc">-</span><span class="dv">2</span>, <span class="dv">4</span>)</span>
-<span id="cb5-42"><a href="#cb5-42" aria-hidden="true" tabindex="-1"></a>    ) <span class="sc">+</span></span>
-<span id="cb5-43"><a href="#cb5-43" aria-hidden="true" tabindex="-1"></a>    <span class="fu">scale_colour_viridis_d</span>(<span class="at">name =</span> <span class="st">"Dose (mg/kg)"</span>, <span class="at">option =</span> <span class="st">"D"</span>, <span class="at">end =</span> <span class="fl">0.88</span>) <span class="sc">+</span></span>
-<span id="cb5-44"><a href="#cb5-44" aria-hidden="true" tabindex="-1"></a>    <span class="fu">scale_fill_viridis_d</span>(<span class="at">name   =</span> <span class="st">"Dose (mg/kg)"</span>, <span class="at">option =</span> <span class="st">"D"</span>, <span class="at">end =</span> <span class="fl">0.88</span>) <span class="sc">+</span></span>
-<span id="cb5-45"><a href="#cb5-45" aria-hidden="true" tabindex="-1"></a>    <span class="fu">labs</span>(</span>
-<span id="cb5-46"><a href="#cb5-46" aria-hidden="true" tabindex="-1"></a>      <span class="at">title    =</span> mol,</span>
-<span id="cb5-47"><a href="#cb5-47" aria-hidden="true" tabindex="-1"></a>      <span class="at">subtitle =</span> <span class="st">"Lines = simulated |  Points = observed"</span>,</span>
-<span id="cb5-48"><a href="#cb5-48" aria-hidden="true" tabindex="-1"></a>      <span class="at">x        =</span> <span class="st">"Time (h)"</span>,</span>
-<span id="cb5-49"><a href="#cb5-49" aria-hidden="true" tabindex="-1"></a>      <span class="at">y        =</span> <span class="st">"Plasma Concentration (µg/mL)"</span></span>
-<span id="cb5-50"><a href="#cb5-50" aria-hidden="true" tabindex="-1"></a>    ) <span class="sc">+</span></span>
-<span id="cb5-51"><a href="#cb5-51" aria-hidden="true" tabindex="-1"></a>    <span class="fu">theme_bw</span>(<span class="at">base_size =</span> <span class="dv">12</span>) <span class="sc">+</span></span>
-<span id="cb5-52"><a href="#cb5-52" aria-hidden="true" tabindex="-1"></a>    <span class="fu">theme</span>(</span>
-<span id="cb5-53"><a href="#cb5-53" aria-hidden="true" tabindex="-1"></a>      <span class="at">strip.background =</span> <span class="fu">element_rect</span>(<span class="at">fill =</span> <span class="st">"grey93"</span>),</span>
-<span id="cb5-54"><a href="#cb5-54" aria-hidden="true" tabindex="-1"></a>      <span class="at">strip.text       =</span> <span class="fu">element_text</span>(<span class="at">face =</span> <span class="st">"bold"</span>),</span>
-<span id="cb5-55"><a href="#cb5-55" aria-hidden="true" tabindex="-1"></a>      <span class="at">legend.position  =</span> <span class="st">"bottom"</span>,</span>
-<span id="cb5-56"><a href="#cb5-56" aria-hidden="true" tabindex="-1"></a>      <span class="at">panel.grid.minor =</span> <span class="fu">element_blank</span>()</span>
-<span id="cb5-57"><a href="#cb5-57" aria-hidden="true" tabindex="-1"></a>    )</span>
-<span id="cb5-58"><a href="#cb5-58" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb5-59"><a href="#cb5-59" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ggsave</span>(</span>
-<span id="cb5-60"><a href="#cb5-60" aria-hidden="true" tabindex="-1"></a>    <span class="fu">file.path</span>(figures_dir, <span class="fu">paste0</span>(<span class="st">"PK_ObsPred_"</span>, mol, <span class="st">".png"</span>)),</span>
-<span id="cb5-61"><a href="#cb5-61" aria-hidden="true" tabindex="-1"></a>    p, <span class="at">width =</span> <span class="dv">10</span>, <span class="at">height =</span> <span class="fl">4.5</span>, <span class="at">dpi =</span> <span class="dv">150</span></span>
-<span id="cb5-62"><a href="#cb5-62" aria-hidden="true" tabindex="-1"></a>  )</span>
-<span id="cb5-63"><a href="#cb5-63" aria-hidden="true" tabindex="-1"></a>  <span class="fu">message</span>(<span class="st">"Saved plot: "</span>, mol)</span>
-<span id="cb5-64"><a href="#cb5-64" aria-hidden="true" tabindex="-1"></a>  p</span>
-<span id="cb5-65"><a href="#cb5-65" aria-hidden="true" tabindex="-1"></a>})</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<span id="cb5-38"><a href="#cb5-38" aria-hidden="true" tabindex="-1"></a>    <span class="fu">coord_cartesian</span>(<span class="at">xlim =</span> <span class="fu">c</span>(<span class="dv">0</span>, <span class="dv">672</span>)) <span class="sc">+</span></span>
+<span id="cb5-39"><a href="#cb5-39" aria-hidden="true" tabindex="-1"></a>    <span class="fu">coord_cartesian</span>(<span class="at">xlim =</span> <span class="fu">c</span>(<span class="dv">0</span>, <span class="dv">672</span>)) <span class="sc">+</span></span>
+<span id="cb5-40"><a href="#cb5-40" aria-hidden="true" tabindex="-1"></a>    <span class="fu">facet_wrap</span>(<span class="sc">~</span> Species, <span class="at">scales =</span> <span class="st">"free_y"</span>) <span class="sc">+</span></span>
+<span id="cb5-41"><a href="#cb5-41" aria-hidden="true" tabindex="-1"></a>    <span class="fu">scale_y_log10</span>(<span class="at">limits =</span> <span class="fu">c</span>(<span class="fl">0.1</span>, <span class="cn">NA</span>), </span>
+<span id="cb5-42"><a href="#cb5-42" aria-hidden="true" tabindex="-1"></a>      <span class="at">labels =</span> <span class="fu">label_number</span>(<span class="at">drop0trailing =</span> <span class="cn">TRUE</span>),</span>
+<span id="cb5-43"><a href="#cb5-43" aria-hidden="true" tabindex="-1"></a>      <span class="at">breaks =</span> <span class="dv">10</span><span class="sc">^</span><span class="fu">seq</span>(<span class="sc">-</span><span class="dv">2</span>, <span class="dv">4</span>)</span>
+<span id="cb5-44"><a href="#cb5-44" aria-hidden="true" tabindex="-1"></a>    ) <span class="sc">+</span></span>
+<span id="cb5-45"><a href="#cb5-45" aria-hidden="true" tabindex="-1"></a>    <span class="fu">scale_colour_viridis_d</span>(<span class="at">name =</span> <span class="st">"Dose (mg/kg)"</span>, <span class="at">option =</span> <span class="st">"D"</span>, <span class="at">end =</span> <span class="fl">0.88</span>) <span class="sc">+</span></span>
+<span id="cb5-46"><a href="#cb5-46" aria-hidden="true" tabindex="-1"></a>    <span class="fu">scale_fill_viridis_d</span>(<span class="at">name   =</span> <span class="st">"Dose (mg/kg)"</span>, <span class="at">option =</span> <span class="st">"D"</span>, <span class="at">end =</span> <span class="fl">0.88</span>) <span class="sc">+</span></span>
+<span id="cb5-47"><a href="#cb5-47" aria-hidden="true" tabindex="-1"></a>    <span class="fu">labs</span>(</span>
+<span id="cb5-48"><a href="#cb5-48" aria-hidden="true" tabindex="-1"></a>      <span class="at">title    =</span> mol,</span>
+<span id="cb5-49"><a href="#cb5-49" aria-hidden="true" tabindex="-1"></a>      <span class="at">subtitle =</span> <span class="st">"Lines = simulated |  Points = observed"</span>,</span>
+<span id="cb5-50"><a href="#cb5-50" aria-hidden="true" tabindex="-1"></a>      <span class="at">x        =</span> <span class="st">"Time (h)"</span>,</span>
+<span id="cb5-51"><a href="#cb5-51" aria-hidden="true" tabindex="-1"></a>      <span class="at">y        =</span> <span class="st">"Plasma Concentration (µg/mL)"</span></span>
+<span id="cb5-52"><a href="#cb5-52" aria-hidden="true" tabindex="-1"></a>    ) <span class="sc">+</span></span>
+<span id="cb5-53"><a href="#cb5-53" aria-hidden="true" tabindex="-1"></a>    <span class="fu">theme_bw</span>(<span class="at">base_size =</span> <span class="dv">12</span>) <span class="sc">+</span></span>
+<span id="cb5-54"><a href="#cb5-54" aria-hidden="true" tabindex="-1"></a>    <span class="fu">theme</span>(</span>
+<span id="cb5-55"><a href="#cb5-55" aria-hidden="true" tabindex="-1"></a>      <span class="at">strip.background =</span> <span class="fu">element_rect</span>(<span class="at">fill =</span> <span class="st">"grey93"</span>),</span>
+<span id="cb5-56"><a href="#cb5-56" aria-hidden="true" tabindex="-1"></a>      <span class="at">strip.text       =</span> <span class="fu">element_text</span>(<span class="at">face =</span> <span class="st">"bold"</span>),</span>
+<span id="cb5-57"><a href="#cb5-57" aria-hidden="true" tabindex="-1"></a>      <span class="at">legend.position  =</span> <span class="st">"bottom"</span>,</span>
+<span id="cb5-58"><a href="#cb5-58" aria-hidden="true" tabindex="-1"></a>      <span class="at">panel.grid.minor =</span> <span class="fu">element_blank</span>()</span>
+<span id="cb5-59"><a href="#cb5-59" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb5-60"><a href="#cb5-60" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-61"><a href="#cb5-61" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ggsave</span>(</span>
+<span id="cb5-62"><a href="#cb5-62" aria-hidden="true" tabindex="-1"></a>    <span class="fu">file.path</span>(figures_dir, <span class="fu">paste0</span>(<span class="st">"PK_ObsPred_"</span>, mol, <span class="st">".png"</span>)),</span>
+<span id="cb5-63"><a href="#cb5-63" aria-hidden="true" tabindex="-1"></a>    p, <span class="at">width =</span> <span class="dv">10</span>, <span class="at">height =</span> <span class="fl">4.5</span>, <span class="at">dpi =</span> <span class="dv">150</span></span>
+<span id="cb5-64"><a href="#cb5-64" aria-hidden="true" tabindex="-1"></a>  )</span>
+<span id="cb5-65"><a href="#cb5-65" aria-hidden="true" tabindex="-1"></a>  <span class="fu">message</span>(<span class="st">"Saved plot: "</span>, mol)</span>
+<span id="cb5-66"><a href="#cb5-66" aria-hidden="true" tabindex="-1"></a>  p</span>
+<span id="cb5-67"><a href="#cb5-67" aria-hidden="true" tabindex="-1"></a>})</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-stderr">
 <pre><code>Warning in scale_y_log10(limits = c(0.1, NA), labels = label_number(drop0trailing = TRUE), : log-10 transformation introduced infinite values.
 log-10 transformation introduced infinite values.
@@ -481,7 +484,7 @@ log-10 transformation introduced infinite values.
 log-10 transformation introduced infinite values.</code></pre>
 </div>
 <div class="cell-output cell-output-stderr">
-<pre><code>Warning: Removed 3 rows containing missing values or values outside the scale range
+<pre><code>Warning: Removed 2 rows containing missing values or values outside the scale range
 (`geom_point()`).</code></pre>
 </div>
 <div class="cell-output cell-output-stderr">
@@ -582,7 +585,7 @@ log-10 transformation introduced infinite values.
 log-10 transformation introduced infinite values.</code></pre>
 </div>
 <div class="cell-output cell-output-stderr">
-<pre><code>Warning: Removed 3 rows containing missing values or values outside the scale range
+<pre><code>Warning: Removed 2 rows containing missing values or values outside the scale range
 (`geom_point()`).</code></pre>
 </div>
 <div class="cell-output-display">
