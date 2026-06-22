@@ -353,7 +353,6 @@ pk_plots <- lapply(molecules, function(mol) {
     ) +
 
     coord_cartesian(xlim = c(0, 672)) +
-    coord_cartesian(xlim = c(0, 672)) +
     facet_wrap(~ Species, scales = "free_y") +
     scale_y_log10(limits = c(0.1, NA), 
       labels = label_number(drop0trailing = TRUE),
