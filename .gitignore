@@ -20,6 +20,9 @@ Test2/03_Apriori/V2/SimsOutputs/SimulationResults/*/
 # â”€â”€ Test1 â€” archived prototype, not the active codebase â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 Test1/
 
+# ── Python sandbox (local experimentation only — not part of the project) ────
+Test2/03_Apriori/V2/Python/
+
 # â”€â”€ Internal developer / AI notes (not part of the project) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 CLAUDE.md
 KNOWLEDGE_TRANSFER.md
