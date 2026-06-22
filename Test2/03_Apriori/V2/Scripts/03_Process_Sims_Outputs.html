@@ -933,7 +933,7 @@ log-10 transformation introduced infinite values.</code></pre>
 </div>
 <section id="human-observed-vs-predicted-pk-metrics" class="level2">
 <h2 class="anchored" data-anchor-id="human-observed-vs-predicted-pk-metrics">Human — observed vs predicted PK metrics</h2>
-<p>Fold errors are shown for scenarios where observed human data is available at a matching dose. Rows without observed data are shown as a priori predictions only. Note: Pembrolizumab observed data begins at day 19 (457 h) so AUC fold error is not meaningful (partial AUC only). Adalimumab IV data is from Broeder 2001 Fig 1 (0.5, 1, 3, 5, 10 mg/kg IV single dose); SC data excluded from comparison.</p>
+<p>Fold errors are shown for scenarios where observed human data is available at a matching dose. Rows without observed data are shown as a priori predictions only. Adalimumab IV data is from Broeder 2001 Fig 1 (0.5, 1, 3, 5, 10 mg/kg IV single dose); SC data excluded from comparison.</p>
 <div class="cell">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb35"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb35-1"><a href="#cb35-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Scenarios with BOTH observed and predicted data (exact dose match)</span></span>
 <span id="cb35-2"><a href="#cb35-2" aria-hidden="true" tabindex="-1"></a>human_obs <span class="ot">&lt;-</span> human_metrics_tbl <span class="sc">%&gt;%</span> <span class="fu">filter</span>(<span class="sc">!</span><span class="fu">is.na</span>(Obs_Cmax) <span class="sc">&amp;</span> <span class="sc">!</span><span class="fu">is.na</span>(Pred_Cmax))</span>
@@ -1257,23 +1257,33 @@ log-10 transformation introduced infinite values.</code></pre>
 <td style="text-align: right;">98186</td>
 <td style="text-align: center; width: 5em;"><span style=" font-weight: bold;    color: rgba(114, 28, 36, 255) !important;border-radius: 4px; padding-right: 4px; padding-left: 4px; background-color: rgba(248, 215, 218, 255) !important;">2.11</span></td>
 </tr>
-<tr class="even" data-grouplength="1">
+<tr class="even" data-grouplength="2">
 <td colspan="8" style="border-bottom: 1px solid"><strong>Pembrolizumab</strong></td>
 </tr>
 <tr class="odd">
 <td style="text-align: left; padding-left: 2em;" data-indentlevel="1">Pembrolizumab</td>
-<td style="text-align: right;">3.0</td>
-<td style="text-align: right;">9.1</td>
-<td style="text-align: right;">72.8</td>
-<td style="text-align: center; width: 5em;"><span style=" font-weight: bold;    color: rgba(114, 28, 36, 255) !important;border-radius: 4px; padding-right: 4px; padding-left: 4px; background-color: rgba(248, 215, 218, 255) !important;">8.02</span></td>
-<td style="text-align: right;">NaN</td>
-<td style="text-align: right;">23614</td>
-<td style="text-align: center; width: 5em;"><span style=" font-weight: bold;    color: rgba(114, 28, 36, 255) !important;border-radius: 4px; padding-right: 4px; padding-left: 4px; background-color: rgba(248, 215, 218, 255) !important;">NaN</span></td>
+<td style="text-align: right;">2.0</td>
+<td style="text-align: right;">47.0</td>
+<td style="text-align: right;">48.5</td>
+<td style="text-align: center; width: 5em;"><span style=" font-weight: bold;    color: rgba(21, 87, 36, 255) !important;border-radius: 4px; padding-right: 4px; padding-left: 4px; background-color: rgba(212, 237, 218, 255) !important;">1.03</span></td>
+<td style="text-align: right;">12369</td>
+<td style="text-align: right;">15746</td>
+<td style="text-align: center; width: 5em;"><span style=" font-weight: bold;    color: rgba(21, 87, 36, 255) !important;border-radius: 4px; padding-right: 4px; padding-left: 4px; background-color: rgba(212, 237, 218, 255) !important;">1.27</span></td>
 </tr>
-<tr class="even" data-grouplength="1">
+<tr class="even">
+<td style="text-align: left; padding-left: 2em;" data-indentlevel="1">Pembrolizumab</td>
+<td style="text-align: right;">10.0</td>
+<td style="text-align: right;">239.1</td>
+<td style="text-align: right;">242.7</td>
+<td style="text-align: center; width: 5em;"><span style=" font-weight: bold;    color: rgba(21, 87, 36, 255) !important;border-radius: 4px; padding-right: 4px; padding-left: 4px; background-color: rgba(212, 237, 218, 255) !important;">1.02</span></td>
+<td style="text-align: right;">55743</td>
+<td style="text-align: right;">78601</td>
+<td style="text-align: center; width: 5em;"><span style=" font-weight: bold;    color: rgba(21, 87, 36, 255) !important;border-radius: 4px; padding-right: 4px; padding-left: 4px; background-color: rgba(212, 237, 218, 255) !important;">1.41</span></td>
+</tr>
+<tr class="odd" data-grouplength="1">
 <td colspan="8" style="border-bottom: 1px solid"><strong>Tocilizumab</strong></td>
 </tr>
-<tr class="odd">
+<tr class="even">
 <td style="text-align: left; padding-left: 2em;" data-indentlevel="1">Tocilizumab</td>
 <td style="text-align: right;">8.0</td>
 <td style="text-align: right;">382.4</td>
