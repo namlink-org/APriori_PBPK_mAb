@@ -22,6 +22,8 @@ Test1/
 
 # ── Python sandbox (local experimentation only — not part of the project) ────
 Test2/03_Apriori/V2/Python/
+Test2/03_Apriori/V2/SimsOutputs/Figures/*_py.png
+Test2/03_Apriori/V2/SimsOutputs/Figures/*_py.xlsx
 
 # â”€â”€ Internal developer / AI notes (not part of the project) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 CLAUDE.md
