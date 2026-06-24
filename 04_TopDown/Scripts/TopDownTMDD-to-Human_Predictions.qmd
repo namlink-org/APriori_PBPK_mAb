@@ -1,0 +1,629 @@
+---
+title: "Human Predictions using Top-down QSS TMDD Fits from Monkey"
+format: html
+---
+
+# Set up
+
+```{r}
+#| label: setup
+#| echo: true
+#| warning: false
+#| message: false
+
+rm(list = ls())
+
+library(tidyverse)
+library(data.table)
+library(scales)
+library(openxlsx)
+library(knitr)
+library(kableExtra)
+library(rxode2)
+
+datadir <- if (dir.exists("../../01_Data")) "../../01_Data" else "01_Data"
+outdir <- if (dir.exists("../SimsOutputs") || dir.exists("../Scripts")) "../SimsOutputs/" else "04_TopDown/SimsOutputs/"
+dir.create(outdir, recursive = TRUE, showWarnings = FALSE)
+figures_dir <- file.path(outdir, "Figures")
+dir.create(figures_dir, recursive = TRUE, showWarnings = FALSE)
+
+RUN3_RDS <- file.path(outdir, "TopDownTMDD_Run3_CL_kint_fixed_Rtot_Monkey.rds")
+PROCESSED_RDS <- file.path(outdir, "TopDownTMDD_Run1_Run3_processed_Monkey.rds")
+
+AUC_END_H <- 28 * 24
+BW_MONKEY_KG <- 3.5
+BW_HUMAN_KG <- 70
+CL_Q_EXPONENT <- 0.85
+VOLUME_EXPONENT <- 1
+
+normalize_names <- function(x) {
+  x %>%
+    str_replace_all("\\.+", ".") %>%
+    str_replace_all("\\s+", ".") %>%
+    str_replace_all("\\[", "") %>%
+    str_replace_all("\\]", "") %>%
+    str_replace_all("\\(", "") %>%
+    str_replace_all("\\)", "")
+}
+
+normalize_species <- function(x) {
+  case_when(
+    str_to_lower(x) %in% c("nhp", "monkey", "cynomolgus monkey") ~ "Monkey",
+    TRUE ~ str_to_title(x)
+  )
+}
+
+unit_to_hour <- function(time, unit) {
+  unit_l <- str_to_lower(str_trim(unit))
+  case_when(
+    unit_l %in% c("h", "hr", "hrs", "hour", "hours") ~ as.numeric(time),
+    unit_l %in% c("min", "mins", "minute", "minutes") ~ as.numeric(time) / 60,
+    unit_l %in% c("day", "days", "d") ~ as.numeric(time) * 24,
+    TRUE ~ as.numeric(time)
+  )
+}
+
+conc_ugml_to_nm <- function(conc_ugml, mw_g_mol) {
+  as.numeric(conc_ugml) * 1e6 / as.numeric(mw_g_mol)
+}
+
+conc_nm_to_ugml <- function(conc_nm, mw_g_mol) {
+  as.numeric(conc_nm) * as.numeric(mw_g_mol) / 1e6
+}
+
+dose_mgkg_to_nmolkg <- function(dose_mgkg, mw_g_mol) {
+  as.numeric(dose_mgkg) * 1e6 / as.numeric(mw_g_mol)
+}
+
+normalize_molecule <- function(x) {
+  str_to_title(str_to_lower(str_squish(as.character(x))))
+}
+
+convert_rate_to_h <- function(value, unit) {
+  unit_l <- str_to_lower(str_trim(unit))
+  case_when(
+    unit_l %in% c("1/min", "min^-1", "1/minute") ~ as.numeric(value) * 60,
+    TRUE ~ as.numeric(value)
+  )
+}
+
+convert_kd_to_nm <- function(value, unit) {
+  unit_l <- str_to_lower(str_trim(unit))
+  unit_l <- str_replace_all(unit_l, "[^[:ascii:]]", "u")
+  case_when(
+    unit_l %in% c("um", "umol/l", "umol/litre", "umol/liter", "umol/l") ~ as.numeric(value) * 1000,
+    unit_l %in% c("nm", "nmol/l", "nmol/litre", "nmol/liter") ~ as.numeric(value),
+    TRUE ~ as.numeric(value)
+  )
+}
+
+trapz_auc <- function(time, conc, t_end = Inf) {
+  keep <- !is.na(time) & !is.na(conc) & conc > 0 & time <= t_end
+  t <- as.numeric(time[keep])
+  c <- as.numeric(conc[keep])
+  if (length(t) < 2) return(NA_real_)
+
+  ord <- order(t)
+  t <- t[ord]
+  c <- c[ord]
+  dt <- diff(t)
+  c1 <- c[-length(c)]
+  c2 <- c[-1]
+  use_log <- c1 != c2 & c1 > 0 & c2 > 0
+  sum(ifelse(use_log, dt * (c1 - c2) / log(c1 / c2), dt * (c1 + c2) / 2))
+}
+
+fmt_fe <- function(x) {
+  cell_spec(
+    ifelse(is.na(x), "", formatC(x, format = "f", digits = 2)),
+    background = ifelse(!is.na(x) & x >= 0.5 & x <= 2, "#d4edda", "#f8d7da"),
+    color = ifelse(!is.na(x) & x >= 0.5 & x <= 2, "#155724", "#721c24"),
+    bold = TRUE
+  )
+}
+
+parse_infusion_duration_h <- function(route) {
+  route_l <- str_to_lower(coalesce(route, ""))
+  duration_h <- suppressWarnings(as.numeric(
+    str_match(route_l, "([0-9]+\\.?[0-9]*)\\s*h(?:r|our)?")[, 2]
+  ))
+  duration_min <- suppressWarnings(as.numeric(
+    str_match(route_l, "([0-9]+\\.?[0-9]*)\\s*min(?:ute)?")[, 2]
+  ))
+  case_when(
+    str_detect(route_l, "infusion") & is.finite(duration_h) & duration_h > 0 ~ duration_h,
+    str_detect(route_l, "infusion") & is.finite(duration_min) & duration_min > 0 ~ duration_min / 60,
+    str_detect(route_l, "infusion") ~ 1,
+    TRUE ~ 0
+  )
+}
+```
+
+# Read human data and inputs
+
+```{r}
+#| label: read-data
+
+obs_raw <- read.csv(
+  file.path(datadir, "Human", "mAb_data_human.csv"),
+  stringsAsFactors = FALSE,
+  check.names = FALSE
+)
+names(obs_raw) <- normalize_names(names(obs_raw))
+
+human_param_raw <- read.xlsx(file.path(datadir, "Human", "Parameters_human.xlsx"), sheet = 1)
+names(human_param_raw) <- normalize_names(names(human_param_raw))
+
+obs_points <- obs_raw %>%
+  transmute(
+    Study.Id = as.character(.data[["Study.Id"]]),
+    Subject.Id = coalesce(
+      na_if(as.character(.data[["Subject.Id"]]), "."),
+      na_if(as.character(.data[["Group.Id"]]), "."),
+      as.character(.data[["Study.Id"]])
+    ),
+    Species = normalize_species(.data[["Species"]]),
+    Dose = as.numeric(.data[["Dose"]]),
+    Molecule = normalize_molecule(.data[["Molecule"]]),
+    MW = as.numeric(.data[["Molecular.Weight"]]),
+    Time_h = unit_to_hour(.data[["Time"]], .data[["Time.unit"]]),
+    Conc_ugmL = as.numeric(.data[["Measurement"]]),
+    Conc_unit = .data[["Measurement.unit"]],
+    Route = .data[["Route"]],
+    Infusion_duration_h = parse_infusion_duration_h(.data[["Route"]])
+  ) %>%
+  filter(
+    Species == "Human",
+    !grepl("^SC$", trimws(Route), ignore.case = TRUE),
+    str_to_lower(Conc_unit) %in% c("ug/ml", "ug/ml", "microgram/ml", "micrograms/ml"),
+    !is.na(Time_h),
+    !is.na(Conc_ugmL),
+    Conc_ugmL > 0,
+    Time_h <= AUC_END_H
+  ) %>%
+  mutate(
+    Profile = paste(Molecule, Dose, Subject.Id, Study.Id, sep = "_"),
+    ID = as.integer(factor(Profile)),
+    DV = conc_ugml_to_nm(Conc_ugmL, MW)
+  )
+
+obs <- obs_points %>%
+  group_by(Molecule, Species, Dose, MW, Time_h) %>%
+  summarise(
+    Conc_ugmL = median(Conc_ugmL, na.rm = TRUE),
+    DV = median(DV, na.rm = TRUE),
+    Infusion_duration_h = median(Infusion_duration_h, na.rm = TRUE),
+    n_points = n(),
+    .groups = "drop"
+  ) %>%
+  arrange(Molecule, Dose, Time_h) %>%
+  mutate(
+    Study.Id = "Median_by_molecule_dose_time",
+    Subject.Id = paste(Molecule, Dose, "median", sep = "_"),
+    Route = if_else(Infusion_duration_h > 0, paste0("IV ", Infusion_duration_h, "h Infusion"), "IV"),
+    Profile = paste(Molecule, Dose, sep = "_"),
+    ID = as.integer(factor(Profile))
+  ) %>%
+  select(
+    Study.Id, Subject.Id, Species, Dose, Molecule, MW, Time_h,
+    Conc_ugmL, Route, Infusion_duration_h, Profile, ID, DV, n_points
+  )
+
+human_target_params <- human_param_raw %>%
+  transmute(
+    Molecule = normalize_molecule(.data[["Drug.Name"]]),
+    Target = .data[["Target.Name"]],
+    Parameter = .data[["Parameter.Name.in.PK-Sim"]],
+    Value = as.numeric(.data[["Value.from.Source"]]),
+    Unit = .data[["Unit"]],
+    Source = .data[["Source"]]
+  ) %>%
+  mutate(
+    parameter_key = case_when(
+      str_to_lower(Parameter) == "reference concentration" ~ "human_rtot_nm",
+      TRUE ~ NA_character_
+    ),
+    value_std = case_when(
+      parameter_key == "human_rtot_nm" ~ convert_kd_to_nm(Value, Unit),
+      TRUE ~ NA_real_
+    )
+  ) %>%
+  filter(!is.na(parameter_key)) %>%
+  select(Molecule, Target, parameter_key, value_std, Source) %>%
+  distinct() %>%
+  pivot_wider(
+    names_from = parameter_key,
+    values_from = value_std,
+    values_fn = list(value_std = mean)
+  )
+
+obs %>%
+  count(Molecule, Dose, ID, Infusion_duration_h, name = "n_time_points") %>%
+  arrange(Molecule, Dose) %>%
+  knitr::kable(caption = "Median human IV profiles used for monkey-to-human prediction")
+
+human_target_params %>%
+  arrange(Molecule) %>%
+  knitr::kable(digits = 4, caption = "Human target reference concentrations used for QSS TMDD predictions")
+```
+
+# Read monkey Run3 parameters and scale to human
+
+```{r}
+#| label: monkey-run3-human-scaling
+
+read_run3_summary <- function() {
+  if (file.exists(RUN3_RDS)) {
+    run3_fits <- readRDS(RUN3_RDS)
+    run3_summary <- purrr::map_dfr(run3_fits, "summary")
+    if (nrow(run3_summary) > 0) return(run3_summary)
+  }
+
+  if (file.exists(PROCESSED_RDS)) {
+    processed <- readRDS(PROCESSED_RDS)
+    run3_summary <- processed$fit_summary %>%
+      filter(Run == "Run3_CL_kint_fixed_Rtot")
+    if (nrow(run3_summary) > 0) return(run3_summary)
+  }
+
+  stop(
+    "Could not read Run3 monkey parameters. Expected ",
+    RUN3_RDS,
+    " or ",
+    PROCESSED_RDS,
+    call. = FALSE
+  )
+}
+
+run3_fit_summary <- read_run3_summary() %>%
+  filter(Run == "Run3_CL_kint_fixed_Rtot") %>%
+  mutate(Molecule = normalize_molecule(Molecule)) %>%
+  select(
+    Run, Molecule, OFV, monkey_Rtot_nM = Rtot_nM, kdeg_h, kint_h, Kss_nM,
+    monkey_CL_L_h_kg = CL_L_h_kg,
+    monkey_Vc_L_kg = Vc_L_kg,
+    monkey_Q_L_h_kg = Q_L_h_kg,
+    monkey_Vp_L_kg = Vp_L_kg,
+    Fit_Status, Fit_Error
+  ) %>%
+  filter(
+    if_all(
+      c(kdeg_h, kint_h, Kss_nM, monkey_CL_L_h_kg, monkey_Vc_L_kg, monkey_Q_L_h_kg, monkey_Vp_L_kg),
+      ~ is.finite(.x)
+    )
+  )
+
+bw_ratio <- BW_HUMAN_KG / BW_MONKEY_KG
+cl_q_per_kg_factor <- bw_ratio^CL_Q_EXPONENT / bw_ratio
+volume_per_kg_factor <- bw_ratio^VOLUME_EXPONENT / bw_ratio
+
+prediction_parameters <- run3_fit_summary %>%
+  inner_join(human_target_params %>% select(Molecule, Target, human_Rtot_nM = human_rtot_nm), by = "Molecule") %>%
+  inner_join(obs %>% distinct(Molecule, MW), by = "Molecule") %>%
+  mutate(
+    human_CL_L_h_kg = monkey_CL_L_h_kg * cl_q_per_kg_factor,
+    human_Q_L_h_kg = monkey_Q_L_h_kg * cl_q_per_kg_factor,
+    human_Vc_L_kg = monkey_Vc_L_kg * volume_per_kg_factor,
+    human_Vp_L_kg = monkey_Vp_L_kg * volume_per_kg_factor,
+    human_CL_L_h = monkey_CL_L_h_kg * BW_MONKEY_KG * bw_ratio^CL_Q_EXPONENT,
+    human_Q_L_h = monkey_Q_L_h_kg * BW_MONKEY_KG * bw_ratio^CL_Q_EXPONENT,
+    human_Vc_L = monkey_Vc_L_kg * BW_MONKEY_KG * bw_ratio^VOLUME_EXPONENT,
+    human_Vp_L = monkey_Vp_L_kg * BW_MONKEY_KG * bw_ratio^VOLUME_EXPONENT,
+    ksyn = human_Rtot_nM * kdeg_h
+  ) %>%
+  arrange(Molecule)
+
+missing_inputs <- setdiff(unique(obs$Molecule), prediction_parameters$Molecule)
+if (length(missing_inputs) > 0) {
+  warning(
+    "Skipping human observed molecules without both Run3 monkey fits and human target reference concentrations: ",
+    paste(missing_inputs, collapse = ", "),
+    call. = FALSE
+  )
+}
+
+prediction_parameters %>%
+  select(
+    Molecule, Target,
+    monkey_CL_L_h_kg, human_CL_L_h_kg, human_CL_L_h,
+    monkey_Q_L_h_kg, human_Q_L_h_kg, human_Q_L_h,
+    monkey_Vc_L_kg, human_Vc_L_kg, human_Vc_L,
+    monkey_Vp_L_kg, human_Vp_L_kg, human_Vp_L,
+    monkey_Rtot_nM, human_Rtot_nM, kdeg_h, kint_h, Kss_nM
+  ) %>%
+  knitr::kable(
+    digits = 4,
+    caption = "Monkey Run3 parameters after human allometric scaling and human target reference concentration substitution"
+  )
+```
+
+# QSS TMDD human simulations
+
+The QSS model is the same two-compartment QSS TMDD structure used for the monkey fits. Monkey Run3 `CL` and `Q` are scaled with a 0.85 allometric exponent, volumes with a 1.0 exponent, and the per-kg values are converted back to the 70 kg human basis used by the model. The estimated monkey `kint` is retained, and the target baseline is replaced by the human reference concentration.
+
+```{r}
+#| label: qss-human-simulations
+
+qss_rxode_model <- rxode2::rxode({
+  Ltot <- centr / vc
+  Cp <- peri / vp
+  free_drug <- 0.5 * ((Ltot - total_target - kss) + sqrt((Ltot - total_target - kss)^2 + 4 * kss * Ltot + 1e-12))
+  complex <- Ltot - free_drug
+  free_target <- total_target - complex
+
+  d/dt(centr) = -cl * free_drug - q * free_drug + q * Cp - kint * complex * vc
+  d/dt(peri) = q * free_drug - q * Cp
+  d/dt(total_target) = ksyn - kdeg * free_target - kint * complex
+})
+
+simulate_human_qss_profile <- function(dat_id, param_row) {
+  dense_times <- seq(
+    0,
+    max(AUC_END_H, max(dat_id$Time_h, na.rm = TRUE)),
+    by = 1
+  )
+  event_times <- sort(unique(c(
+    dense_times,
+    dat_id$Time_h,
+    dat_id$Infusion_duration_h[1]
+  )))
+
+  dose_nmolkg <- dose_mgkg_to_nmolkg(dat_id$Dose[1], dat_id$MW[1])
+  infusion_duration <- dat_id$Infusion_duration_h[1]
+
+  event_table <- tibble(
+    id = dat_id$ID[1],
+    time = event_times,
+    amt = NA_real_,
+    evid = 0L,
+    cmt = "centr",
+    rate = NA_real_
+  ) %>%
+    add_row(
+      id = dat_id$ID[1],
+      time = 0,
+      amt = dose_nmolkg,
+      evid = 1L,
+      cmt = "centr",
+      rate = if_else(infusion_duration > 0, dose_nmolkg / infusion_duration, NA_real_)
+    ) %>%
+    arrange(time, desc(evid)) %>%
+    as.data.frame()
+
+  theta <- c(
+    cl = param_row$human_CL_L_h_kg,
+    vc = param_row$human_Vc_L_kg,
+    q = param_row$human_Q_L_h_kg,
+    vp = param_row$human_Vp_L_kg,
+    r0 = param_row$human_Rtot_nM,
+    kdeg = param_row$kdeg_h,
+    kint = param_row$kint_h,
+    kss = param_row$Kss_nM,
+    ksyn = param_row$ksyn
+  )
+
+  rxode2::rxSolve(
+    qss_rxode_model,
+    params = theta,
+    events = event_table,
+    inits = c(centr = 0, peri = 0, total_target = theta[["r0"]]),
+    rtol = 1e-6,
+    atol = 1e-9,
+    hmin = 1e-12,
+    maxsteps = 100000,
+    returnType = "data.frame"
+  ) %>%
+    as_tibble() %>%
+    transmute(
+      Run = "Run3_CL_kint_fixed_Rtot_human_scaled",
+      ID = as.integer(dat_id$ID[1]),
+      TIME = as.numeric(time),
+      Pred_nM = pmax(as.numeric(Ltot), 0),
+      Pred_ugmL = conc_nm_to_ugml(Pred_nM, dat_id$MW[1]),
+      Molecule = dat_id$Molecule[1],
+      Dose = dat_id$Dose[1],
+      MW = dat_id$MW[1],
+      Infusion_duration_h = infusion_duration,
+      Time_type = if_else(TIME %in% dat_id$Time_h, "Observed time", "Grid time")
+    )
+}
+
+obs_for_prediction <- obs %>%
+  semi_join(prediction_parameters, by = "Molecule")
+
+predictions <- map_dfr(unique(obs_for_prediction$ID), function(profile_id) {
+  dat_id <- obs_for_prediction %>%
+    filter(ID == profile_id) %>%
+    arrange(Time_h)
+  param_row <- prediction_parameters %>%
+    filter(Molecule == dat_id$Molecule[1])
+  simulate_human_qss_profile(dat_id, param_row)
+})
+
+predictions_at_observed_times <- predictions %>%
+  filter(Time_type == "Observed time") %>%
+  inner_join(
+    obs_for_prediction %>% select(ID, TIME = Time_h, Observed_ugmL = Conc_ugmL, Observed_nM = DV, n_points),
+    by = c("ID", "TIME")
+  )
+
+predictions %>%
+  count(Molecule, Dose, Infusion_duration_h, name = "n_simulated_times") %>%
+  arrange(Molecule, Dose) %>%
+  knitr::kable(caption = "Human QSS TMDD simulation audit by molecule and dose")
+```
+
+# Process outputs
+
+```{r}
+#| label: process-outputs
+
+obs_metrics <- obs_for_prediction %>%
+  group_by(Molecule, Dose, ID) %>%
+  summarise(
+    Obs_Cmax = max(Conc_ugmL, na.rm = TRUE),
+    Obs_AUC = trapz_auc(Time_h, Conc_ugmL, t_end = AUC_END_H),
+    .groups = "drop"
+  ) %>%
+  group_by(Molecule, Dose) %>%
+  summarise(
+    Obs_Cmax = mean(Obs_Cmax, na.rm = TRUE),
+    Obs_AUC = mean(Obs_AUC, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+pred_metrics <- predictions %>%
+  filter(TIME <= AUC_END_H) %>%
+  group_by(Run, Molecule, Dose, ID) %>%
+  summarise(
+    Pred_Cmax = max(Pred_ugmL, na.rm = TRUE),
+    Pred_AUC = trapz_auc(TIME, Pred_ugmL, t_end = AUC_END_H),
+    .groups = "drop"
+  ) %>%
+  group_by(Run, Molecule, Dose) %>%
+  summarise(
+    Pred_Cmax = mean(Pred_Cmax, na.rm = TRUE),
+    Pred_AUC = mean(Pred_AUC, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+metrics_tbl <- pred_metrics %>%
+  left_join(obs_metrics, by = c("Molecule", "Dose")) %>%
+  mutate(
+    FE_Cmax = Pred_Cmax / Obs_Cmax,
+    FE_AUC = Pred_AUC / Obs_AUC
+  ) %>%
+  arrange(Molecule, Dose, Run)
+
+parameter_tbl <- prediction_parameters %>%
+  select(
+    Molecule, Target, Run, OFV, Fit_Status,
+    monkey_Rtot_nM, human_Rtot_nM, kdeg_h, kint_h, Kss_nM,
+    monkey_CL_L_h_kg, human_CL_L_h_kg, human_CL_L_h,
+    monkey_Q_L_h_kg, human_Q_L_h_kg, human_Q_L_h,
+    monkey_Vc_L_kg, human_Vc_L_kg, human_Vc_L,
+    monkey_Vp_L_kg, human_Vp_L_kg, human_Vp_L
+  ) %>%
+  arrange(Molecule)
+
+parameter_tbl %>%
+  kable(digits = 4, caption = "Scaled human prediction parameters")
+
+metrics_tbl %>%
+  mutate(
+    Obs_Cmax = round(Obs_Cmax, 2),
+    Pred_Cmax = round(Pred_Cmax, 2),
+    FE_Cmax = map_chr(FE_Cmax, fmt_fe),
+    Obs_AUC = round(Obs_AUC, 1),
+    Pred_AUC = round(Pred_AUC, 1),
+    FE_AUC = map_chr(FE_AUC, fmt_fe)
+  ) %>%
+  select(
+    Run, Molecule, Dose,
+    `Observed Cmax (ug/mL)` = Obs_Cmax,
+    `Predicted Cmax (ug/mL)` = Pred_Cmax,
+    `FE Cmax` = FE_Cmax,
+    `Observed AUC0-672h (ug*h/mL)` = Obs_AUC,
+    `Predicted AUC0-672h (ug*h/mL)` = Pred_AUC,
+    `FE AUC` = FE_AUC
+  ) %>%
+  kbl(
+    escape = FALSE,
+    digits = 3,
+    caption = "Observed human and monkey-to-human predicted Cmax/AUC with fold error"
+  ) %>%
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed"),
+    full_width = FALSE,
+    font_size = 13
+  )
+
+write.xlsx(
+  list(
+    Human_Scaled_Parameters = parameter_tbl,
+    Metrics = metrics_tbl,
+    Predictions = predictions,
+    Predictions_Observed_Times = predictions_at_observed_times,
+    Human_Target_Inputs = human_target_params
+  ),
+  file.path(outdir, "TopDownTMDD_to_Human_predictions.xlsx"),
+  overwrite = TRUE
+)
+
+saveRDS(
+  list(
+    parameter_tbl = parameter_tbl,
+    metrics_tbl = metrics_tbl,
+    predictions = predictions,
+    predictions_at_observed_times = predictions_at_observed_times,
+    human_target_params = human_target_params
+  ),
+  file.path(outdir, "TopDownTMDD_to_Human_predictions.rds")
+)
+
+write.csv(parameter_tbl, file.path(outdir, "TopDownTMDD_to_Human_parameters.csv"), row.names = FALSE)
+write.csv(metrics_tbl, file.path(outdir, "TopDownTMDD_to_Human_metrics.csv"), row.names = FALSE)
+```
+
+# Diagnostic plots
+
+```{r}
+#| label: diagnostic-plots
+#| fig-width: 10
+#| fig-height: 7
+
+ggplot() +
+  geom_line(
+    data = predictions %>%
+      filter(TIME <= AUC_END_H) %>%
+      left_join(prediction_parameters %>% distinct(Molecule, Target), by = "Molecule") %>%
+      arrange(Target, Molecule, Dose, TIME) %>%
+      mutate(
+        Facet = factor(paste(Target, Molecule, sep = " | "),
+                       levels = unique(paste(Target, Molecule, sep = " | ")))
+      ),
+    aes(TIME, Pred_ugmL, color = factor(Dose), group = interaction(Dose, ID)),
+    linewidth = 0.8
+  ) +
+  geom_point(
+    data = obs_for_prediction %>%
+      filter(Time_h <= AUC_END_H) %>%
+      left_join(prediction_parameters %>% distinct(Molecule, Target), by = "Molecule") %>%
+      arrange(Target, Molecule, Dose, Time_h) %>%
+      mutate(
+        Facet = factor(paste(Target, Molecule, sep = " | "),
+                       levels = unique(paste(Target, Molecule, sep = " | ")))
+      ),
+    aes(Time_h, Conc_ugmL, color = factor(Dose)),
+    size = 1.7
+  ) +
+  facet_wrap(~ Facet, scales = "free_y", ncol = 3) +
+  scale_x_continuous(
+    limits = c(0, AUC_END_H),
+    breaks = seq(0, AUC_END_H, by = 168),
+    labels = function(x) x / 24
+  ) +
+  scale_y_log10(
+    labels = label_number(drop0trailing = TRUE),
+    breaks = 10^seq(-2, 4)
+  ) +
+  scale_color_viridis_d(name = "Dose (mg/kg)", option = "D", end = 0.88) +
+  labs(
+    x = "Time post dose (days)",
+    y = "Plasma Concentration (ug/mL)",
+    title = "Human top-down QSS TMDD predicted profiles",
+    subtitle = "Monkey Run 3 parameters scaled to human with human target concentrations"
+  ) +
+  theme_bw(base_size = 11) +
+  theme(
+    strip.background = element_rect(fill = "grey93"),
+    strip.text = element_text(face = "bold", size = 8),
+    legend.position = "bottom",
+    panel.grid.minor = element_blank()
+  )
+
+ggsave(
+  file.path(figures_dir, "TopDownTMDD_to_Human_ObsPred.png"),
+  last_plot(), width = 12, height = 8, dpi = 150
+)
+```

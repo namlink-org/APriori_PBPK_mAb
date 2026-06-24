@@ -1,0 +1,209 @@
+"Drug","Design","Comparison","N_per_group","Total_animals","Animals_used","Power"
+"Adalimumab","2 dose groups","A: fixed n/group",2,4,4,0.581
+"Adalimumab","2 dose groups","A: fixed n/group",3,6,6,0.643
+"Adalimumab","2 dose groups","A: fixed n/group",4,8,8,0.724
+"Adalimumab","2 dose groups","A: fixed n/group",5,10,10,0.822
+"Adalimumab","3 dose groups","A: fixed n/group",2,6,6,0.743
+"Adalimumab","3 dose groups","A: fixed n/group",3,9,9,0.805
+"Adalimumab","3 dose groups","A: fixed n/group",4,12,12,0.849
+"Adalimumab","3 dose groups","A: fixed n/group",5,15,15,0.932
+"Atezolizumab","2 dose groups","A: fixed n/group",2,4,4,0.729
+"Atezolizumab","2 dose groups","A: fixed n/group",3,6,6,0.805
+"Atezolizumab","2 dose groups","A: fixed n/group",4,8,8,0.895
+"Atezolizumab","2 dose groups","A: fixed n/group",5,10,10,0.944
+"Atezolizumab","3 dose groups","A: fixed n/group",2,6,6,0.862
+"Atezolizumab","3 dose groups","A: fixed n/group",3,9,9,0.913
+"Atezolizumab","3 dose groups","A: fixed n/group",4,12,12,0.977
+"Atezolizumab","3 dose groups","A: fixed n/group",5,15,15,0.989
+"Avelumab","2 dose groups","A: fixed n/group",2,4,4,0.824
+"Avelumab","2 dose groups","A: fixed n/group",3,6,6,0.902
+"Avelumab","2 dose groups","A: fixed n/group",4,8,8,0.967
+"Avelumab","2 dose groups","A: fixed n/group",5,10,10,0.991
+"Avelumab","3 dose groups","A: fixed n/group",2,6,6,0.936
+"Avelumab","3 dose groups","A: fixed n/group",3,9,9,0.98
+"Avelumab","3 dose groups","A: fixed n/group",4,12,12,0.997
+"Avelumab","3 dose groups","A: fixed n/group",5,15,15,0.998
+"Bevacizumab","2 dose groups","A: fixed n/group",2,4,4,0.776
+"Bevacizumab","2 dose groups","A: fixed n/group",3,6,6,0.865
+"Bevacizumab","2 dose groups","A: fixed n/group",4,8,8,0.938
+"Bevacizumab","2 dose groups","A: fixed n/group",5,10,10,0.968
+"Bevacizumab","3 dose groups","A: fixed n/group",2,6,6,0.883
+"Bevacizumab","3 dose groups","A: fixed n/group",3,9,9,0.966
+"Bevacizumab","3 dose groups","A: fixed n/group",4,12,12,0.995
+"Bevacizumab","3 dose groups","A: fixed n/group",5,15,15,0.996
+"Golimumab","2 dose groups","A: fixed n/group",2,4,4,0.573
+"Golimumab","2 dose groups","A: fixed n/group",3,6,6,0.627
+"Golimumab","2 dose groups","A: fixed n/group",4,8,8,0.683
+"Golimumab","2 dose groups","A: fixed n/group",5,10,10,0.741
+"Golimumab","3 dose groups","A: fixed n/group",2,6,6,0.698
+"Golimumab","3 dose groups","A: fixed n/group",3,9,9,0.753
+"Golimumab","3 dose groups","A: fixed n/group",4,12,12,0.826
+"Golimumab","3 dose groups","A: fixed n/group",5,15,15,0.875
+"Nivolumab","2 dose groups","A: fixed n/group",2,4,4,0.632
+"Nivolumab","2 dose groups","A: fixed n/group",3,6,6,0.66
+"Nivolumab","2 dose groups","A: fixed n/group",4,8,8,0.749
+"Nivolumab","2 dose groups","A: fixed n/group",5,10,10,0.844
+"Nivolumab","3 dose groups","A: fixed n/group",2,6,6,0.736
+"Nivolumab","3 dose groups","A: fixed n/group",3,9,9,0.78
+"Nivolumab","3 dose groups","A: fixed n/group",4,12,12,0.849
+"Nivolumab","3 dose groups","A: fixed n/group",5,15,15,0.919
+"Pembrolizumab","2 dose groups","A: fixed n/group",2,4,4,0.638
+"Pembrolizumab","2 dose groups","A: fixed n/group",3,6,6,0.68
+"Pembrolizumab","2 dose groups","A: fixed n/group",4,8,8,0.754
+"Pembrolizumab","2 dose groups","A: fixed n/group",5,10,10,0.849
+"Pembrolizumab","3 dose groups","A: fixed n/group",2,6,6,0.747
+"Pembrolizumab","3 dose groups","A: fixed n/group",3,9,9,0.798
+"Pembrolizumab","3 dose groups","A: fixed n/group",4,12,12,0.876
+"Pembrolizumab","3 dose groups","A: fixed n/group",5,15,15,0.929
+"Tocilizumab","2 dose groups","A: fixed n/group",2,4,4,0.867
+"Tocilizumab","2 dose groups","A: fixed n/group",3,6,6,0.938
+"Tocilizumab","2 dose groups","A: fixed n/group",4,8,8,0.972
+"Tocilizumab","2 dose groups","A: fixed n/group",5,10,10,0.99
+"Tocilizumab","3 dose groups","A: fixed n/group",2,6,6,0.95
+"Tocilizumab","3 dose groups","A: fixed n/group",3,9,9,0.992
+"Tocilizumab","3 dose groups","A: fixed n/group",4,12,12,1
+"Tocilizumab","3 dose groups","A: fixed n/group",5,15,15,1
+"Adalimumab","2 dose groups","B: fixed total animals",2,4,4,0.613
+"Adalimumab","2 dose groups","B: fixed total animals",2,5,4,0.623
+"Adalimumab","2 dose groups","B: fixed total animals",3,6,6,0.66
+"Adalimumab","2 dose groups","B: fixed total animals",3,7,6,0.63
+"Adalimumab","2 dose groups","B: fixed total animals",4,8,8,0.725
+"Adalimumab","2 dose groups","B: fixed total animals",4,9,8,0.748
+"Adalimumab","2 dose groups","B: fixed total animals",5,10,10,0.803
+"Adalimumab","2 dose groups","B: fixed total animals",5,11,10,0.805
+"Adalimumab","3 dose groups","B: fixed total animals",2,6,6,0.733
+"Adalimumab","3 dose groups","B: fixed total animals",2,7,6,0.756
+"Adalimumab","3 dose groups","B: fixed total animals",2,8,6,0.717
+"Adalimumab","3 dose groups","B: fixed total animals",3,9,9,0.781
+"Adalimumab","3 dose groups","B: fixed total animals",3,10,9,0.749
+"Adalimumab","3 dose groups","B: fixed total animals",3,11,9,0.777
+"Adalimumab","3 dose groups","B: fixed total animals",4,12,12,0.846
+"Adalimumab","3 dose groups","B: fixed total animals",4,13,12,0.863
+"Adalimumab","3 dose groups","B: fixed total animals",4,14,12,0.863
+"Adalimumab","3 dose groups","B: fixed total animals",5,15,15,0.913
+"Atezolizumab","2 dose groups","B: fixed total animals",2,4,4,0.76
+"Atezolizumab","2 dose groups","B: fixed total animals",2,5,4,0.731
+"Atezolizumab","2 dose groups","B: fixed total animals",3,6,6,0.827
+"Atezolizumab","2 dose groups","B: fixed total animals",3,7,6,0.807
+"Atezolizumab","2 dose groups","B: fixed total animals",4,8,8,0.873
+"Atezolizumab","2 dose groups","B: fixed total animals",4,9,8,0.894
+"Atezolizumab","2 dose groups","B: fixed total animals",5,10,10,0.938
+"Atezolizumab","2 dose groups","B: fixed total animals",5,11,10,0.941
+"Atezolizumab","3 dose groups","B: fixed total animals",2,6,6,0.857
+"Atezolizumab","3 dose groups","B: fixed total animals",2,7,6,0.861
+"Atezolizumab","3 dose groups","B: fixed total animals",2,8,6,0.873
+"Atezolizumab","3 dose groups","B: fixed total animals",3,9,9,0.932
+"Atezolizumab","3 dose groups","B: fixed total animals",3,10,9,0.928
+"Atezolizumab","3 dose groups","B: fixed total animals",3,11,9,0.93
+"Atezolizumab","3 dose groups","B: fixed total animals",4,12,12,0.973
+"Atezolizumab","3 dose groups","B: fixed total animals",4,13,12,0.964
+"Atezolizumab","3 dose groups","B: fixed total animals",4,14,12,0.967
+"Atezolizumab","3 dose groups","B: fixed total animals",5,15,15,0.99
+"Avelumab","2 dose groups","B: fixed total animals",2,4,4,0.831
+"Avelumab","2 dose groups","B: fixed total animals",2,5,4,0.818
+"Avelumab","2 dose groups","B: fixed total animals",3,6,6,0.916
+"Avelumab","2 dose groups","B: fixed total animals",3,7,6,0.917
+"Avelumab","2 dose groups","B: fixed total animals",4,8,8,0.96
+"Avelumab","2 dose groups","B: fixed total animals",4,9,8,0.969
+"Avelumab","2 dose groups","B: fixed total animals",5,10,10,0.984
+"Avelumab","2 dose groups","B: fixed total animals",5,11,10,0.988
+"Avelumab","3 dose groups","B: fixed total animals",2,6,6,0.909
+"Avelumab","3 dose groups","B: fixed total animals",2,7,6,0.934
+"Avelumab","3 dose groups","B: fixed total animals",2,8,6,0.928
+"Avelumab","3 dose groups","B: fixed total animals",3,9,9,0.977
+"Avelumab","3 dose groups","B: fixed total animals",3,10,9,0.981
+"Avelumab","3 dose groups","B: fixed total animals",3,11,9,0.976
+"Avelumab","3 dose groups","B: fixed total animals",4,12,12,0.997
+"Avelumab","3 dose groups","B: fixed total animals",4,13,12,0.996
+"Avelumab","3 dose groups","B: fixed total animals",4,14,12,0.995
+"Avelumab","3 dose groups","B: fixed total animals",5,15,15,1
+"Bevacizumab","2 dose groups","B: fixed total animals",2,4,4,0.811
+"Bevacizumab","2 dose groups","B: fixed total animals",2,5,4,0.784
+"Bevacizumab","2 dose groups","B: fixed total animals",3,6,6,0.837
+"Bevacizumab","2 dose groups","B: fixed total animals",3,7,6,0.876
+"Bevacizumab","2 dose groups","B: fixed total animals",4,8,8,0.921
+"Bevacizumab","2 dose groups","B: fixed total animals",4,9,8,0.919
+"Bevacizumab","2 dose groups","B: fixed total animals",5,10,10,0.97
+"Bevacizumab","2 dose groups","B: fixed total animals",5,11,10,0.96
+"Bevacizumab","3 dose groups","B: fixed total animals",2,6,6,0.883
+"Bevacizumab","3 dose groups","B: fixed total animals",2,7,6,0.889
+"Bevacizumab","3 dose groups","B: fixed total animals",2,8,6,0.894
+"Bevacizumab","3 dose groups","B: fixed total animals",3,9,9,0.965
+"Bevacizumab","3 dose groups","B: fixed total animals",3,10,9,0.952
+"Bevacizumab","3 dose groups","B: fixed total animals",3,11,9,0.946
+"Bevacizumab","3 dose groups","B: fixed total animals",4,12,12,0.981
+"Bevacizumab","3 dose groups","B: fixed total animals",4,13,12,0.985
+"Bevacizumab","3 dose groups","B: fixed total animals",4,14,12,0.985
+"Bevacizumab","3 dose groups","B: fixed total animals",5,15,15,0.995
+"Golimumab","2 dose groups","B: fixed total animals",2,4,4,0.585
+"Golimumab","2 dose groups","B: fixed total animals",2,5,4,0.566
+"Golimumab","2 dose groups","B: fixed total animals",3,6,6,0.599
+"Golimumab","2 dose groups","B: fixed total animals",3,7,6,0.612
+"Golimumab","2 dose groups","B: fixed total animals",4,8,8,0.676
+"Golimumab","2 dose groups","B: fixed total animals",4,9,8,0.662
+"Golimumab","2 dose groups","B: fixed total animals",5,10,10,0.748
+"Golimumab","2 dose groups","B: fixed total animals",5,11,10,0.762
+"Golimumab","3 dose groups","B: fixed total animals",2,6,6,0.709
+"Golimumab","3 dose groups","B: fixed total animals",2,7,6,0.719
+"Golimumab","3 dose groups","B: fixed total animals",2,8,6,0.701
+"Golimumab","3 dose groups","B: fixed total animals",3,9,9,0.742
+"Golimumab","3 dose groups","B: fixed total animals",3,10,9,0.738
+"Golimumab","3 dose groups","B: fixed total animals",3,11,9,0.766
+"Golimumab","3 dose groups","B: fixed total animals",4,12,12,0.819
+"Golimumab","3 dose groups","B: fixed total animals",4,13,12,0.834
+"Golimumab","3 dose groups","B: fixed total animals",4,14,12,0.831
+"Golimumab","3 dose groups","B: fixed total animals",5,15,15,0.886
+"Nivolumab","2 dose groups","B: fixed total animals",2,4,4,0.606
+"Nivolumab","2 dose groups","B: fixed total animals",2,5,4,0.648
+"Nivolumab","2 dose groups","B: fixed total animals",3,6,6,0.686
+"Nivolumab","2 dose groups","B: fixed total animals",3,7,6,0.66
+"Nivolumab","2 dose groups","B: fixed total animals",4,8,8,0.773
+"Nivolumab","2 dose groups","B: fixed total animals",4,9,8,0.779
+"Nivolumab","2 dose groups","B: fixed total animals",5,10,10,0.857
+"Nivolumab","2 dose groups","B: fixed total animals",5,11,10,0.848
+"Nivolumab","3 dose groups","B: fixed total animals",2,6,6,0.734
+"Nivolumab","3 dose groups","B: fixed total animals",2,7,6,0.699
+"Nivolumab","3 dose groups","B: fixed total animals",2,8,6,0.736
+"Nivolumab","3 dose groups","B: fixed total animals",3,9,9,0.784
+"Nivolumab","3 dose groups","B: fixed total animals",3,10,9,0.781
+"Nivolumab","3 dose groups","B: fixed total animals",3,11,9,0.754
+"Nivolumab","3 dose groups","B: fixed total animals",4,12,12,0.869
+"Nivolumab","3 dose groups","B: fixed total animals",4,13,12,0.863
+"Nivolumab","3 dose groups","B: fixed total animals",4,14,12,0.858
+"Nivolumab","3 dose groups","B: fixed total animals",5,15,15,0.923
+"Pembrolizumab","2 dose groups","B: fixed total animals",2,4,4,0.619
+"Pembrolizumab","2 dose groups","B: fixed total animals",2,5,4,0.634
+"Pembrolizumab","2 dose groups","B: fixed total animals",3,6,6,0.693
+"Pembrolizumab","2 dose groups","B: fixed total animals",3,7,6,0.68
+"Pembrolizumab","2 dose groups","B: fixed total animals",4,8,8,0.744
+"Pembrolizumab","2 dose groups","B: fixed total animals",4,9,8,0.753
+"Pembrolizumab","2 dose groups","B: fixed total animals",5,10,10,0.837
+"Pembrolizumab","2 dose groups","B: fixed total animals",5,11,10,0.843
+"Pembrolizumab","3 dose groups","B: fixed total animals",2,6,6,0.717
+"Pembrolizumab","3 dose groups","B: fixed total animals",2,7,6,0.746
+"Pembrolizumab","3 dose groups","B: fixed total animals",2,8,6,0.74
+"Pembrolizumab","3 dose groups","B: fixed total animals",3,9,9,0.778
+"Pembrolizumab","3 dose groups","B: fixed total animals",3,10,9,0.811
+"Pembrolizumab","3 dose groups","B: fixed total animals",3,11,9,0.789
+"Pembrolizumab","3 dose groups","B: fixed total animals",4,12,12,0.867
+"Pembrolizumab","3 dose groups","B: fixed total animals",4,13,12,0.87
+"Pembrolizumab","3 dose groups","B: fixed total animals",4,14,12,0.888
+"Pembrolizumab","3 dose groups","B: fixed total animals",5,15,15,0.932
+"Tocilizumab","2 dose groups","B: fixed total animals",2,4,4,0.851
+"Tocilizumab","2 dose groups","B: fixed total animals",2,5,4,0.844
+"Tocilizumab","2 dose groups","B: fixed total animals",3,6,6,0.939
+"Tocilizumab","2 dose groups","B: fixed total animals",3,7,6,0.933
+"Tocilizumab","2 dose groups","B: fixed total animals",4,8,8,0.979
+"Tocilizumab","2 dose groups","B: fixed total animals",4,9,8,0.971
+"Tocilizumab","2 dose groups","B: fixed total animals",5,10,10,0.994
+"Tocilizumab","2 dose groups","B: fixed total animals",5,11,10,0.998
+"Tocilizumab","3 dose groups","B: fixed total animals",2,6,6,0.943
+"Tocilizumab","3 dose groups","B: fixed total animals",2,7,6,0.934
+"Tocilizumab","3 dose groups","B: fixed total animals",2,8,6,0.942
+"Tocilizumab","3 dose groups","B: fixed total animals",3,9,9,0.991
+"Tocilizumab","3 dose groups","B: fixed total animals",3,10,9,0.985
+"Tocilizumab","3 dose groups","B: fixed total animals",3,11,9,0.983
+"Tocilizumab","3 dose groups","B: fixed total animals",4,12,12,0.997
+"Tocilizumab","3 dose groups","B: fixed total animals",4,13,12,0.999
+"Tocilizumab","3 dose groups","B: fixed total animals",4,14,12,0.995
+"Tocilizumab","3 dose groups","B: fixed total animals",5,15,15,1

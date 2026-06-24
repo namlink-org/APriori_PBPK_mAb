@@ -1,0 +1,1018 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.9.38">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+
+<title>setup_configurations</title>
+<style>
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="01_Setup_Configurations_files/libs/clipboard/clipboard.min.js"></script>
+<script src="01_Setup_Configurations_files/libs/quarto-html/quarto.js" type="module"></script>
+<script src="01_Setup_Configurations_files/libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="01_Setup_Configurations_files/libs/quarto-html/popper.min.js"></script>
+<script src="01_Setup_Configurations_files/libs/quarto-html/tippy.umd.min.js"></script>
+<script src="01_Setup_Configurations_files/libs/quarto-html/anchor.min.js"></script>
+<link href="01_Setup_Configurations_files/libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="01_Setup_Configurations_files/libs/quarto-html/quarto-syntax-highlighting-15634bcf2e68342d4ad2dfa704d543f6.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="01_Setup_Configurations_files/libs/bootstrap/bootstrap.min.js"></script>
+<link href="01_Setup_Configurations_files/libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="01_Setup_Configurations_files/libs/bootstrap/bootstrap-efbb37e9afcc02144ebbc7afd12a776f.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+<script src="01_Setup_Configurations_files/libs/kePrint-0.0.1/kePrint.js"></script>
+
+<link href="01_Setup_Configurations_files/libs/lightable-0.0.1/lightable.css" rel="stylesheet">
+
+
+
+</head>
+
+<body class="fullcontent quarto-light">
+
+<div id="quarto-content" class="page-columns page-rows-contents page-layout-article">
+
+<main class="content" id="quarto-document-content">
+
+
+
+
+<hr>
+<p>title: “01_Setup_Configurations”</p>
+<p>author: “NAMLink”</p>
+<p>format: html</p>
+<hr>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">rm</span>(<span class="at">list=</span><span class="fu">ls</span>())</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(tidyverse)</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(readxl)</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(openxlsx)</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(purrr)</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(esqlabsR)</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>datdir <span class="ot">&lt;-</span> <span class="st">"../../01_Data/"</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>moddir <span class="ot">&lt;-</span> <span class="st">"../../00_Models/PKML_Files"</span>   <span class="co"># flat combined folder (monkey + human)</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="co"># dat &lt;- read.csv(file.path(datdir, "Monkey", "mAb_data.csv"), stringsAsFactors = F, na.strings=F)</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="co"># </span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="co"># params &lt;- read.xlsx(file.path(datdir, "Monkey", "Parameters.xlsx"), sheet=1)</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="co"># </span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="co"># unique(dat$Molecule)</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="co"># </span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a><span class="co"># keepers &lt;-params %&gt;%  pull(`Drug.Name`) %&gt;% unique(.)</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a><span class="co"># </span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a><span class="co"># plotdat &lt;- dat %&gt;% filter(Molecule %in% keepers) %&gt;%</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a><span class="co">#   </span><span class="al">###</span><span class="co"> Take single dose data only (after 28 days, multiple dose data may be included based on the review of plots)</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a><span class="co">#   filter(Species=="NHP", Time &lt; 28*24) %&gt;%</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a><span class="co">#   filter(Time &lt; 7*24 | Molecule != "Pembrolizumab") %&gt;% # Pembro seems to be every 7 day dosing (Not needed)</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a><span class="co">#   filter(Measurement &gt;=2 | ! Molecule %in% c("Pembrolizumab", "Nipocalimab")) %&gt;%</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a><span class="co">#   filter(Time &lt; 14*24 | Molecule != "Atezolizumab") %&gt;% # Atezoli 5 mg/kg seems to be every 14 day dosing (Not needed)</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a><span class="co">#   filter(Time &gt; 0) %&gt;%</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a><span class="co">#   mutate(Subject.Id = subject.Id2) %&gt;%</span></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a><span class="co">#   select(-subject.Id2) %&gt;%</span></span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a><span class="co">#   arrange(Molecule, Dose, Subject.Id, Time) %&gt;%</span></span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a><span class="co">#   group_by(Molecule, Dose, Subject.Id, Time) %&gt;%</span></span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a><span class="co">#   slice(1) %&gt;%</span></span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a><span class="co">#   ungroup()</span></span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a><span class="co"># </span></span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a><span class="co"># ggplot(plotdat, aes(x=Time, y=Measurement, color=factor(Dose), group=Subject.Id)) +</span></span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a><span class="co">#   geom_line() +</span></span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a><span class="co">#   facet_wrap(~Molecule, scales="free") +</span></span>
+<span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a><span class="co">#   scale_y_log10() +</span></span>
+<span id="cb2-27"><a href="#cb2-27" aria-hidden="true" tabindex="-1"></a><span class="co">#   theme_bw()</span></span>
+<span id="cb2-28"><a href="#cb2-28" aria-hidden="true" tabindex="-1"></a><span class="co"># write.csv(plotdat, file.path(datdir, "Monkey", "mAb_data_clean.csv"), row.names=F, na="")</span></span>
+<span id="cb2-29"><a href="#cb2-29" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-30"><a href="#cb2-30" aria-hidden="true" tabindex="-1"></a><span class="do">#### Human</span></span>
+<span id="cb2-31"><a href="#cb2-31" aria-hidden="true" tabindex="-1"></a><span class="co"># dat &lt;- read.csv(file.path(datdir, "Human", "mAb_data_human.csv"), stringsAsFactors = F, na.strings=F)</span></span>
+<span id="cb2-32"><a href="#cb2-32" aria-hidden="true" tabindex="-1"></a><span class="co"># # params &lt;- read.xlsx(file.path(datdir, "Human", "Parameters_human.xlsx"), sheet=1)</span></span>
+<span id="cb2-33"><a href="#cb2-33" aria-hidden="true" tabindex="-1"></a><span class="co">#  </span></span>
+<span id="cb2-34"><a href="#cb2-34" aria-hidden="true" tabindex="-1"></a><span class="co"># plotdat &lt;- dat %&gt;%  </span></span>
+<span id="cb2-35"><a href="#cb2-35" aria-hidden="true" tabindex="-1"></a><span class="co">#   </span><span class="al">###</span><span class="co"> Take single dose data only </span></span>
+<span id="cb2-36"><a href="#cb2-36" aria-hidden="true" tabindex="-1"></a><span class="co">#   filter(Species=="Human", Time &lt; 28*24, Molecule!="Pembrolizumab") %&gt;%</span></span>
+<span id="cb2-37"><a href="#cb2-37" aria-hidden="true" tabindex="-1"></a><span class="co">#   arrange(Molecule, Dose, Subject.Id, Time) </span></span>
+<span id="cb2-38"><a href="#cb2-38" aria-hidden="true" tabindex="-1"></a><span class="co"># </span></span>
+<span id="cb2-39"><a href="#cb2-39" aria-hidden="true" tabindex="-1"></a><span class="co"># time_bins &lt;- c(0, 0.25, 1, 2, 4, 6, 12, 24, 48, seq(48, 24 * 28, 24 * 2))</span></span>
+<span id="cb2-40"><a href="#cb2-40" aria-hidden="true" tabindex="-1"></a><span class="co"># </span></span>
+<span id="cb2-41"><a href="#cb2-41" aria-hidden="true" tabindex="-1"></a><span class="co"># Tocidat &lt;- plotdat %&gt;%</span></span>
+<span id="cb2-42"><a href="#cb2-42" aria-hidden="true" tabindex="-1"></a><span class="co">#   filter(Molecule == "Tocilizumab") %&gt;%</span></span>
+<span id="cb2-43"><a href="#cb2-43" aria-hidden="true" tabindex="-1"></a><span class="co">#   mutate(</span></span>
+<span id="cb2-44"><a href="#cb2-44" aria-hidden="true" tabindex="-1"></a><span class="co">#     Time_bin = time_bins[map_int(Time, ~ which.min(abs(time_bins - .x)))]</span></span>
+<span id="cb2-45"><a href="#cb2-45" aria-hidden="true" tabindex="-1"></a><span class="co">#   ) %&gt;%</span></span>
+<span id="cb2-46"><a href="#cb2-46" aria-hidden="true" tabindex="-1"></a><span class="co">#   group_by(Species, Molecule, Dose, Time = Time_bin) %&gt;%</span></span>
+<span id="cb2-47"><a href="#cb2-47" aria-hidden="true" tabindex="-1"></a><span class="co">#   summarize(</span></span>
+<span id="cb2-48"><a href="#cb2-48" aria-hidden="true" tabindex="-1"></a><span class="co">#     Measurement = median(Measurement),</span></span>
+<span id="cb2-49"><a href="#cb2-49" aria-hidden="true" tabindex="-1"></a><span class="co">#     .groups = "drop"</span></span>
+<span id="cb2-50"><a href="#cb2-50" aria-hidden="true" tabindex="-1"></a><span class="co">#   ) %&gt;% ungroup() %&gt;% filter(Time!=336) %&gt;%</span></span>
+<span id="cb2-51"><a href="#cb2-51" aria-hidden="true" tabindex="-1"></a><span class="co">#   full_join(., plotdat %&gt;% filter(Molecule=="Tocilizumab") %&gt;% select(-Time, -Measurement) %&gt;% slice(1) %&gt;% ungroup())</span></span>
+<span id="cb2-52"><a href="#cb2-52" aria-hidden="true" tabindex="-1"></a><span class="co"># </span></span>
+<span id="cb2-53"><a href="#cb2-53" aria-hidden="true" tabindex="-1"></a><span class="co"># plotdat &lt;- bind_rows(plotdat %&gt;% filter(Molecule!="Tocilizumab"), Tocidat)%&gt;%</span></span>
+<span id="cb2-54"><a href="#cb2-54" aria-hidden="true" tabindex="-1"></a><span class="co">#   arrange(Molecule, Dose, Subject.Id, Time) </span></span>
+<span id="cb2-55"><a href="#cb2-55" aria-hidden="true" tabindex="-1"></a><span class="co"># </span></span>
+<span id="cb2-56"><a href="#cb2-56" aria-hidden="true" tabindex="-1"></a><span class="co"># ggplot(plotdat, aes(x=Time, y=Measurement, color=factor(Dose), group=Subject.Id)) +</span></span>
+<span id="cb2-57"><a href="#cb2-57" aria-hidden="true" tabindex="-1"></a><span class="co">#   geom_line() +</span></span>
+<span id="cb2-58"><a href="#cb2-58" aria-hidden="true" tabindex="-1"></a><span class="co">#   facet_wrap(~Molecule, scales="free") +</span></span>
+<span id="cb2-59"><a href="#cb2-59" aria-hidden="true" tabindex="-1"></a><span class="co">#   scale_y_log10() +</span></span>
+<span id="cb2-60"><a href="#cb2-60" aria-hidden="true" tabindex="-1"></a><span class="co">#   theme_bw()</span></span>
+<span id="cb2-61"><a href="#cb2-61" aria-hidden="true" tabindex="-1"></a><span class="co"># write.csv(plotdat, file.path(datdir, "Human", "mAb_data_clean.csv"), row.names=F, na="")</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<section id="auto-generate-all-3-configuration-files" class="level1">
+<h1>Auto-Generate All 3 Configuration Files</h1>
+<p>Auto-generates <strong>Applications.xlsx</strong>, <strong>ModelParameters.xlsx</strong>, and <strong>Scenarios.xlsx</strong> for all 8 molecules in <code>mAb_data_clean.csv</code>. Uses <code>Parameters.xlsx</code> as the parameter source. Run after the data-cleaning section above.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Paths relative to Scripts/ folder (3 levels up to reach Test2/01_Data/)</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>datdir  <span class="ot">&lt;-</span> <span class="st">"../../01_Data"</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>confdir <span class="ot">&lt;-</span> <span class="st">"../Configurations"</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a><span class="co"># Redirect R temp files to D: drive (avoids C: drive space/permission issues).</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a><span class="co"># openxlsx saveWorkbook() writes through tempdir() before moving to target.</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>conf_abs <span class="ot">&lt;-</span> <span class="fu">normalizePath</span>(confdir, <span class="at">mustWork =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (<span class="sc">!</span><span class="fu">dir.exists</span>(conf_abs)) <span class="fu">dir.create</span>(conf_abs, <span class="at">recursive =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a><span class="fu">Sys.setenv</span>(<span class="at">TMPDIR =</span> conf_abs, <span class="at">TMP =</span> conf_abs, <span class="at">TEMP =</span> conf_abs)</span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a><span class="co"># Write xlsx to a fresh temp file then copy to target.</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a><span class="co"># This bypasses Windows file-lock errors when a file is open in Excel.</span></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>safe_save_xlsx <span class="ot">&lt;-</span> <span class="cf">function</span>(wb, target_path) {</span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>  tmp <span class="ot">&lt;-</span> <span class="fu">tempfile</span>(<span class="at">fileext =</span> <span class="st">".xlsx"</span>)</span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>  <span class="fu">on.exit</span>(<span class="fu">try</span>(<span class="fu">file.remove</span>(tmp), <span class="at">silent =</span> <span class="cn">TRUE</span>))</span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>  openxlsx<span class="sc">::</span><span class="fu">saveWorkbook</span>(wb, tmp, <span class="at">overwrite =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="fu">file.exists</span>(target_path))</span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>    <span class="fu">try</span>(<span class="fu">file.remove</span>(target_path), <span class="at">silent =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>  <span class="fu">file.copy</span>(tmp, target_path, <span class="at">overwrite =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a>  <span class="fu">invisible</span>(target_path)</span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a><span class="co"># Load cleaned monkey data</span></span>
+<span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a>dat <span class="ot">&lt;-</span> <span class="fu">read.csv</span>(</span>
+<span id="cb3-25"><a href="#cb3-25" aria-hidden="true" tabindex="-1"></a>  <span class="fu">file.path</span>(datdir, <span class="st">"Monkey"</span>, <span class="st">"mAb_data_clean.csv"</span>),</span>
+<span id="cb3-26"><a href="#cb3-26" aria-hidden="true" tabindex="-1"></a>  <span class="at">stringsAsFactors =</span> <span class="cn">FALSE</span>, <span class="at">na.strings =</span> <span class="st">""</span></span>
+<span id="cb3-27"><a href="#cb3-27" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb3-28"><a href="#cb3-28" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-29"><a href="#cb3-29" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"Molecules:"</span>, <span class="fu">paste</span>(<span class="fu">sort</span>(<span class="fu">unique</span>(dat<span class="sc">$</span>Molecule)), <span class="at">collapse =</span> <span class="st">", "</span>), <span class="st">"</span><span class="sc">\n</span><span class="st">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Molecules: Adalimumab, Atezolizumab, Avelumab, Bevacizumab, Golimumab, Nivolumab, Pembrolizumab, Tocilizumab </code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"Total rows:"</span>, <span class="fu">nrow</span>(dat), <span class="st">"</span><span class="sc">\n</span><span class="st">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Total rows: 181 </code></pre>
+</div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Load Monkey Parameters.xlsx (long format: one row per parameter per drug)</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>params_long <span class="ot">&lt;-</span> <span class="fu">read.xlsx</span>(<span class="fu">file.path</span>(datdir, <span class="st">"Monkey"</span>, <span class="st">"Parameters.xlsx"</span>), <span class="at">sheet =</span> <span class="dv">1</span>)</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="fu">names</span>(params_long) <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"Drug.Name"</span>, <span class="st">"Target.Name"</span>, <span class="st">"Parameter.Name"</span>,</span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>                         <span class="st">"Value"</span>, <span class="st">"Unit"</span>, <span class="st">"Source"</span>, <span class="st">"Method"</span>)</span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a><span class="co"># Load Human Parameters.xlsx — same structure, one parameter differs per drug</span></span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a>params_long_human <span class="ot">&lt;-</span> <span class="fu">read.xlsx</span>(<span class="fu">file.path</span>(datdir, <span class="st">"Human"</span>, <span class="st">"Parameters_human.xlsx"</span>), <span class="at">sheet =</span> <span class="dv">1</span>)</span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a><span class="fu">names</span>(params_long_human) <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"Drug.Name"</span>, <span class="st">"Target.Name"</span>, <span class="st">"Parameter.Name"</span>,</span>
+<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a>                               <span class="st">"Value"</span>, <span class="st">"Unit"</span>, <span class="st">"Source"</span>, <span class="st">"Method"</span>)</span>
+<span id="cb7-10"><a href="#cb7-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-11"><a href="#cb7-11" aria-hidden="true" tabindex="-1"></a><span class="co"># Target receptor -&gt; PKML file mapping (monkey and human variants)</span></span>
+<span id="cb7-12"><a href="#cb7-12" aria-hidden="true" tabindex="-1"></a>pkml_map_monkey <span class="ot">&lt;-</span> <span class="fu">c</span>(</span>
+<span id="cb7-13"><a href="#cb7-13" aria-hidden="true" tabindex="-1"></a>  <span class="st">"PD-L1"</span> <span class="ot">=</span> <span class="st">"PKML_Files_Monkey/PKML_Files_Monkey/AntiPDL1.pkml"</span>,</span>
+<span id="cb7-14"><a href="#cb7-14" aria-hidden="true" tabindex="-1"></a>  <span class="st">"PD-1"</span>  <span class="ot">=</span> <span class="st">"PKML_Files_Monkey/PKML_Files_Monkey/AntiPD1.pkml"</span>,</span>
+<span id="cb7-15"><a href="#cb7-15" aria-hidden="true" tabindex="-1"></a>  <span class="st">"VEGFA"</span> <span class="ot">=</span> <span class="st">"PKML_Files_Monkey/PKML_Files_Monkey/AntiVEGFA.pkml"</span>,</span>
+<span id="cb7-16"><a href="#cb7-16" aria-hidden="true" tabindex="-1"></a>  <span class="st">"IL-6R"</span> <span class="ot">=</span> <span class="st">"PKML_Files_Monkey/PKML_Files_Monkey/AntiIL6R.pkml"</span>,</span>
+<span id="cb7-17"><a href="#cb7-17" aria-hidden="true" tabindex="-1"></a>  <span class="st">"TNFA"</span>  <span class="ot">=</span> <span class="st">"PKML_Files_Monkey/PKML_Files_Monkey/AntiTNFA.pkml"</span></span>
+<span id="cb7-18"><a href="#cb7-18" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb7-19"><a href="#cb7-19" aria-hidden="true" tabindex="-1"></a>pkml_map_human <span class="ot">&lt;-</span> <span class="fu">c</span>(</span>
+<span id="cb7-20"><a href="#cb7-20" aria-hidden="true" tabindex="-1"></a>  <span class="st">"PD-L1"</span> <span class="ot">=</span> <span class="st">"PKML_Files_Human/PKML_Files_Human/AntiPDL1.pkml"</span>,</span>
+<span id="cb7-21"><a href="#cb7-21" aria-hidden="true" tabindex="-1"></a>  <span class="st">"PD-1"</span>  <span class="ot">=</span> <span class="st">"PKML_Files_Human/PKML_Files_Human/AntiPD1.pkml"</span>,</span>
+<span id="cb7-22"><a href="#cb7-22" aria-hidden="true" tabindex="-1"></a>  <span class="st">"VEGFA"</span> <span class="ot">=</span> <span class="st">"PKML_Files_Human/PKML_Files_Human/AntiVEGFA.pkml"</span>,</span>
+<span id="cb7-23"><a href="#cb7-23" aria-hidden="true" tabindex="-1"></a>  <span class="st">"IL-6R"</span> <span class="ot">=</span> <span class="st">"PKML_Files_Human/PKML_Files_Human/AntiIL6R.pkml"</span>,</span>
+<span id="cb7-24"><a href="#cb7-24" aria-hidden="true" tabindex="-1"></a>  <span class="st">"TNFA"</span>  <span class="ot">=</span> <span class="st">"PKML_Files_Human/PKML_Files_Human/AntiTNFA.pkml"</span></span>
+<span id="cb7-25"><a href="#cb7-25" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb7-26"><a href="#cb7-26" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-27"><a href="#cb7-27" aria-hidden="true" tabindex="-1"></a><span class="co"># Parameter name -&gt; Container Path (confirmed from V2 manual ModelParameters.xlsx)</span></span>
+<span id="cb7-28"><a href="#cb7-28" aria-hidden="true" tabindex="-1"></a>container_map <span class="ot">&lt;-</span> <span class="fu">c</span>(</span>
+<span id="cb7-29"><a href="#cb7-29" aria-hidden="true" tabindex="-1"></a>  <span class="st">"Kd (FcRn) in endosomal space"</span> <span class="ot">=</span> <span class="st">"mAb"</span>,</span>
+<span id="cb7-30"><a href="#cb7-30" aria-hidden="true" tabindex="-1"></a>  <span class="st">"Kd"</span>                           <span class="ot">=</span> <span class="st">"mAb-Target-InVitro"</span>,</span>
+<span id="cb7-31"><a href="#cb7-31" aria-hidden="true" tabindex="-1"></a>  <span class="st">"koff"</span>                         <span class="ot">=</span> <span class="st">"mAb-Target-InVitro"</span>,</span>
+<span id="cb7-32"><a href="#cb7-32" aria-hidden="true" tabindex="-1"></a>  <span class="st">"kint"</span>                         <span class="ot">=</span> <span class="st">"Complex Internalization"</span>,</span>
+<span id="cb7-33"><a href="#cb7-33" aria-hidden="true" tabindex="-1"></a>  <span class="st">"kdeg"</span>                         <span class="ot">=</span> <span class="st">"Target degradation"</span>,</span>
+<span id="cb7-34"><a href="#cb7-34" aria-hidden="true" tabindex="-1"></a>  <span class="st">"Reference concentration"</span>      <span class="ot">=</span> <span class="st">"Target"</span></span>
+<span id="cb7-35"><a href="#cb7-35" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb7-36"><a href="#cb7-36" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-37"><a href="#cb7-37" aria-hidden="true" tabindex="-1"></a><span class="co"># Parameter name -&gt; Units (confirmed from V2 manual ModelParameters.xlsx)</span></span>
+<span id="cb7-38"><a href="#cb7-38" aria-hidden="true" tabindex="-1"></a>unit_map <span class="ot">&lt;-</span> <span class="fu">c</span>(</span>
+<span id="cb7-39"><a href="#cb7-39" aria-hidden="true" tabindex="-1"></a>  <span class="st">"Kd (FcRn) in endosomal space"</span> <span class="ot">=</span> <span class="st">"µmol/l"</span>,</span>
+<span id="cb7-40"><a href="#cb7-40" aria-hidden="true" tabindex="-1"></a>  <span class="st">"Kd"</span>                           <span class="ot">=</span> <span class="st">"µmol/l"</span>,</span>
+<span id="cb7-41"><a href="#cb7-41" aria-hidden="true" tabindex="-1"></a>  <span class="st">"koff"</span>                         <span class="ot">=</span> <span class="st">"1/min"</span>,</span>
+<span id="cb7-42"><a href="#cb7-42" aria-hidden="true" tabindex="-1"></a>  <span class="st">"kint"</span>                         <span class="ot">=</span> <span class="st">"1/h"</span>,</span>
+<span id="cb7-43"><a href="#cb7-43" aria-hidden="true" tabindex="-1"></a>  <span class="st">"kdeg"</span>                         <span class="ot">=</span> <span class="st">"1/h"</span>,</span>
+<span id="cb7-44"><a href="#cb7-44" aria-hidden="true" tabindex="-1"></a>  <span class="st">"Reference concentration"</span>      <span class="ot">=</span> <span class="st">"nmol/l"</span></span>
+<span id="cb7-45"><a href="#cb7-45" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb7-46"><a href="#cb7-46" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-47"><a href="#cb7-47" aria-hidden="true" tabindex="-1"></a><span class="co"># Drug -&gt; PKML lookup (monkey)</span></span>
+<span id="cb7-48"><a href="#cb7-48" aria-hidden="true" tabindex="-1"></a>drug_pkml_monkey <span class="ot">&lt;-</span> params_long <span class="sc">%&gt;%</span></span>
+<span id="cb7-49"><a href="#cb7-49" aria-hidden="true" tabindex="-1"></a>  <span class="fu">distinct</span>(Drug.Name, Target.Name) <span class="sc">%&gt;%</span></span>
+<span id="cb7-50"><a href="#cb7-50" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">Species.label =</span> <span class="st">"Monkey"</span>, <span class="at">PKML.File =</span> pkml_map_monkey[Target.Name])</span>
+<span id="cb7-51"><a href="#cb7-51" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-52"><a href="#cb7-52" aria-hidden="true" tabindex="-1"></a><span class="co"># Drug -&gt; PKML lookup (human)</span></span>
+<span id="cb7-53"><a href="#cb7-53" aria-hidden="true" tabindex="-1"></a>drug_pkml_human <span class="ot">&lt;-</span> params_long_human <span class="sc">%&gt;%</span></span>
+<span id="cb7-54"><a href="#cb7-54" aria-hidden="true" tabindex="-1"></a>  <span class="fu">distinct</span>(Drug.Name, Target.Name) <span class="sc">%&gt;%</span></span>
+<span id="cb7-55"><a href="#cb7-55" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">Species.label =</span> <span class="st">"Human"</span>, <span class="at">PKML.File =</span> pkml_map_human[Target.Name])</span>
+<span id="cb7-56"><a href="#cb7-56" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-57"><a href="#cb7-57" aria-hidden="true" tabindex="-1"></a>drug_pkml <span class="ot">&lt;-</span> <span class="fu">bind_rows</span>(drug_pkml_monkey, drug_pkml_human)</span>
+<span id="cb7-58"><a href="#cb7-58" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-59"><a href="#cb7-59" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"</span><span class="sc">\n</span><span class="st">Drug-to-PKML mapping:</span><span class="sc">\n</span><span class="st">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>
+Drug-to-PKML mapping:</code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="fu">print</span>(drug_pkml)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>       Drug.Name Target.Name Species.label
+1   Atezolizumab       PD-L1        Monkey
+2       Avelumab       PD-L1        Monkey
+3      Nivolumab        PD-1        Monkey
+4  Pembrolizumab        PD-1        Monkey
+5    Bevacizumab       VEGFA        Monkey
+6    Tocilizumab       IL-6R        Monkey
+7     Adalimumab        TNFA        Monkey
+8      Golimumab        TNFA        Monkey
+9   Atezolizumab       PD-L1         Human
+10      Avelumab       PD-L1         Human
+11     Nivolumab        PD-1         Human
+12 Pembrolizumab        PD-1         Human
+13   Bevacizumab       VEGFA         Human
+14   Tocilizumab       IL-6R         Human
+15    Adalimumab        TNFA         Human
+16     Golimumab        TNFA         Human
+                                            PKML.File
+1   PKML_Files_Monkey/PKML_Files_Monkey/AntiPDL1.pkml
+2   PKML_Files_Monkey/PKML_Files_Monkey/AntiPDL1.pkml
+3    PKML_Files_Monkey/PKML_Files_Monkey/AntiPD1.pkml
+4    PKML_Files_Monkey/PKML_Files_Monkey/AntiPD1.pkml
+5  PKML_Files_Monkey/PKML_Files_Monkey/AntiVEGFA.pkml
+6   PKML_Files_Monkey/PKML_Files_Monkey/AntiIL6R.pkml
+7   PKML_Files_Monkey/PKML_Files_Monkey/AntiTNFA.pkml
+8   PKML_Files_Monkey/PKML_Files_Monkey/AntiTNFA.pkml
+9     PKML_Files_Human/PKML_Files_Human/AntiPDL1.pkml
+10    PKML_Files_Human/PKML_Files_Human/AntiPDL1.pkml
+11     PKML_Files_Human/PKML_Files_Human/AntiPD1.pkml
+12     PKML_Files_Human/PKML_Files_Human/AntiPD1.pkml
+13   PKML_Files_Human/PKML_Files_Human/AntiVEGFA.pkml
+14    PKML_Files_Human/PKML_Files_Human/AntiIL6R.pkml
+15    PKML_Files_Human/PKML_Files_Human/AntiTNFA.pkml
+16    PKML_Files_Human/PKML_Files_Human/AntiTNFA.pkml</code></pre>
+</div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Monkey scenarios — driven by observed NHP data (one scenario per Molecule x Dose)</span></span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>scenarios_monkey <span class="ot">&lt;-</span> dat <span class="sc">%&gt;%</span></span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">distinct</span>(Molecule, Dose) <span class="sc">%&gt;%</span></span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">Species.label =</span> <span class="st">"Monkey"</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">left_join</span>(drug_pkml_monkey <span class="sc">%&gt;%</span> <span class="fu">select</span>(Drug.Name, PKML.File),</span>
+<span id="cb11-6"><a href="#cb11-6" aria-hidden="true" tabindex="-1"></a>            <span class="at">by =</span> <span class="fu">c</span>(<span class="st">"Molecule"</span> <span class="ot">=</span> <span class="st">"Drug.Name"</span>))</span>
+<span id="cb11-7"><a href="#cb11-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-8"><a href="#cb11-8" aria-hidden="true" tabindex="-1"></a><span class="co"># Human scenarios — driven by human observed data (clinical doses, NOT monkey doses)</span></span>
+<span id="cb11-9"><a href="#cb11-9" aria-hidden="true" tabindex="-1"></a><span class="co"># SC routes excluded: the PBPK model is IV-only; SC data cannot be compared.</span></span>
+<span id="cb11-10"><a href="#cb11-10" aria-hidden="true" tabindex="-1"></a><span class="co"># Adalimumab IV data (Broeder 2001, 5 doses) is now included.</span></span>
+<span id="cb11-11"><a href="#cb11-11" aria-hidden="true" tabindex="-1"></a>dat_human_obs <span class="ot">&lt;-</span> <span class="fu">read.csv</span>(</span>
+<span id="cb11-12"><a href="#cb11-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">file.path</span>(datdir, <span class="st">"Human"</span>, <span class="st">"mAb_data_human.csv"</span>),</span>
+<span id="cb11-13"><a href="#cb11-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">stringsAsFactors =</span> <span class="cn">FALSE</span>, <span class="at">na.strings =</span> <span class="st">""</span></span>
+<span id="cb11-14"><a href="#cb11-14" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb11-15"><a href="#cb11-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-16"><a href="#cb11-16" aria-hidden="true" tabindex="-1"></a>scenarios_human <span class="ot">&lt;-</span> dat_human_obs <span class="sc">%&gt;%</span></span>
+<span id="cb11-17"><a href="#cb11-17" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(<span class="sc">!</span><span class="fu">grepl</span>(<span class="st">"^SC$"</span>, <span class="fu">trimws</span>(Route), <span class="at">ignore.case =</span> <span class="cn">TRUE</span>)) <span class="sc">%&gt;%</span></span>
+<span id="cb11-18"><a href="#cb11-18" aria-hidden="true" tabindex="-1"></a>  <span class="fu">distinct</span>(Molecule, Dose) <span class="sc">%&gt;%</span></span>
+<span id="cb11-19"><a href="#cb11-19" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">Species.label =</span> <span class="st">"Human"</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb11-20"><a href="#cb11-20" aria-hidden="true" tabindex="-1"></a>  <span class="fu">left_join</span>(drug_pkml_human <span class="sc">%&gt;%</span> <span class="fu">select</span>(Drug.Name, PKML.File),</span>
+<span id="cb11-21"><a href="#cb11-21" aria-hidden="true" tabindex="-1"></a>            <span class="at">by =</span> <span class="fu">c</span>(<span class="st">"Molecule"</span> <span class="ot">=</span> <span class="st">"Drug.Name"</span>))</span>
+<span id="cb11-22"><a href="#cb11-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-23"><a href="#cb11-23" aria-hidden="true" tabindex="-1"></a>scenarios <span class="ot">&lt;-</span> <span class="fu">bind_rows</span>(scenarios_monkey, scenarios_human) <span class="sc">%&gt;%</span></span>
+<span id="cb11-24"><a href="#cb11-24" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">Sheet.name =</span> <span class="fu">paste</span>(Molecule, Species.label, Dose, <span class="st">"mpk"</span>, <span class="at">sep =</span> <span class="st">"_"</span>)) <span class="sc">%&gt;%</span></span>
+<span id="cb11-25"><a href="#cb11-25" aria-hidden="true" tabindex="-1"></a>  <span class="fu">arrange</span>(Molecule, Species.label, Dose)</span>
+<span id="cb11-26"><a href="#cb11-26" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-27"><a href="#cb11-27" aria-hidden="true" tabindex="-1"></a>missing_pkml <span class="ot">&lt;-</span> scenarios <span class="sc">%&gt;%</span> <span class="fu">filter</span>(<span class="fu">is.na</span>(PKML.File))</span>
+<span id="cb11-28"><a href="#cb11-28" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (<span class="fu">nrow</span>(missing_pkml) <span class="sc">&gt;</span> <span class="dv">0</span>)</span>
+<span id="cb11-29"><a href="#cb11-29" aria-hidden="true" tabindex="-1"></a>  <span class="fu">warning</span>(<span class="st">"No PKML mapped for: "</span>, <span class="fu">paste</span>(<span class="fu">unique</span>(missing_pkml<span class="sc">$</span>Molecule), <span class="at">collapse =</span> <span class="st">", "</span>))</span>
+<span id="cb11-30"><a href="#cb11-30" aria-hidden="true" tabindex="-1"></a>scenarios <span class="ot">&lt;-</span> scenarios <span class="sc">%&gt;%</span> <span class="fu">filter</span>(<span class="sc">!</span><span class="fu">is.na</span>(PKML.File))</span>
+<span id="cb11-31"><a href="#cb11-31" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-32"><a href="#cb11-32" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"</span><span class="sc">\n</span><span class="st">Scenarios to configure:"</span>, <span class="fu">nrow</span>(scenarios), <span class="st">"</span><span class="sc">\n</span><span class="st">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>
+Scenarios to configure: 44 </code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="fu">print</span>(scenarios <span class="sc">%&gt;%</span> <span class="fu">select</span>(Molecule, Species.label, Dose, PKML.File))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>        Molecule Species.label Dose
+1     Adalimumab         Human  0.5
+2     Adalimumab         Human  1.0
+3     Adalimumab         Human  3.0
+4     Adalimumab         Human  5.0
+5     Adalimumab         Human 10.0
+6     Adalimumab        Monkey  3.0
+7   Atezolizumab         Human  1.0
+8   Atezolizumab         Human  3.0
+9   Atezolizumab         Human 10.0
+10  Atezolizumab         Human 15.0
+11  Atezolizumab         Human 20.0
+12  Atezolizumab        Monkey  0.5
+13  Atezolizumab        Monkey  5.0
+14  Atezolizumab        Monkey 20.0
+15      Avelumab         Human  1.0
+16      Avelumab         Human  3.0
+17      Avelumab         Human 10.0
+18      Avelumab         Human 20.0
+19      Avelumab        Monkey  5.0
+20   Bevacizumab         Human 15.0
+21   Bevacizumab        Monkey  4.0
+22   Bevacizumab        Monkey  5.0
+23     Golimumab         Human  0.1
+24     Golimumab         Human  0.3
+25     Golimumab         Human  1.0
+26     Golimumab         Human  3.0
+27     Golimumab         Human  6.0
+28     Golimumab         Human 10.0
+29     Golimumab        Monkey  3.0
+30     Nivolumab         Human  1.0
+31     Nivolumab         Human  3.0
+32     Nivolumab         Human  4.0
+33     Nivolumab         Human  6.0
+34     Nivolumab         Human 10.0
+35     Nivolumab         Human 20.0
+36     Nivolumab        Monkey  1.0
+37     Nivolumab        Monkey 10.0
+38 Pembrolizumab         Human  2.0
+39 Pembrolizumab         Human 10.0
+40 Pembrolizumab        Monkey  0.3
+41 Pembrolizumab        Monkey  3.0
+42 Pembrolizumab        Monkey 30.0
+43   Tocilizumab         Human  8.0
+44   Tocilizumab        Monkey 10.0
+                                            PKML.File
+1     PKML_Files_Human/PKML_Files_Human/AntiTNFA.pkml
+2     PKML_Files_Human/PKML_Files_Human/AntiTNFA.pkml
+3     PKML_Files_Human/PKML_Files_Human/AntiTNFA.pkml
+4     PKML_Files_Human/PKML_Files_Human/AntiTNFA.pkml
+5     PKML_Files_Human/PKML_Files_Human/AntiTNFA.pkml
+6   PKML_Files_Monkey/PKML_Files_Monkey/AntiTNFA.pkml
+7     PKML_Files_Human/PKML_Files_Human/AntiPDL1.pkml
+8     PKML_Files_Human/PKML_Files_Human/AntiPDL1.pkml
+9     PKML_Files_Human/PKML_Files_Human/AntiPDL1.pkml
+10    PKML_Files_Human/PKML_Files_Human/AntiPDL1.pkml
+11    PKML_Files_Human/PKML_Files_Human/AntiPDL1.pkml
+12  PKML_Files_Monkey/PKML_Files_Monkey/AntiPDL1.pkml
+13  PKML_Files_Monkey/PKML_Files_Monkey/AntiPDL1.pkml
+14  PKML_Files_Monkey/PKML_Files_Monkey/AntiPDL1.pkml
+15    PKML_Files_Human/PKML_Files_Human/AntiPDL1.pkml
+16    PKML_Files_Human/PKML_Files_Human/AntiPDL1.pkml
+17    PKML_Files_Human/PKML_Files_Human/AntiPDL1.pkml
+18    PKML_Files_Human/PKML_Files_Human/AntiPDL1.pkml
+19  PKML_Files_Monkey/PKML_Files_Monkey/AntiPDL1.pkml
+20   PKML_Files_Human/PKML_Files_Human/AntiVEGFA.pkml
+21 PKML_Files_Monkey/PKML_Files_Monkey/AntiVEGFA.pkml
+22 PKML_Files_Monkey/PKML_Files_Monkey/AntiVEGFA.pkml
+23    PKML_Files_Human/PKML_Files_Human/AntiTNFA.pkml
+24    PKML_Files_Human/PKML_Files_Human/AntiTNFA.pkml
+25    PKML_Files_Human/PKML_Files_Human/AntiTNFA.pkml
+26    PKML_Files_Human/PKML_Files_Human/AntiTNFA.pkml
+27    PKML_Files_Human/PKML_Files_Human/AntiTNFA.pkml
+28    PKML_Files_Human/PKML_Files_Human/AntiTNFA.pkml
+29  PKML_Files_Monkey/PKML_Files_Monkey/AntiTNFA.pkml
+30     PKML_Files_Human/PKML_Files_Human/AntiPD1.pkml
+31     PKML_Files_Human/PKML_Files_Human/AntiPD1.pkml
+32     PKML_Files_Human/PKML_Files_Human/AntiPD1.pkml
+33     PKML_Files_Human/PKML_Files_Human/AntiPD1.pkml
+34     PKML_Files_Human/PKML_Files_Human/AntiPD1.pkml
+35     PKML_Files_Human/PKML_Files_Human/AntiPD1.pkml
+36   PKML_Files_Monkey/PKML_Files_Monkey/AntiPD1.pkml
+37   PKML_Files_Monkey/PKML_Files_Monkey/AntiPD1.pkml
+38     PKML_Files_Human/PKML_Files_Human/AntiPD1.pkml
+39     PKML_Files_Human/PKML_Files_Human/AntiPD1.pkml
+40   PKML_Files_Monkey/PKML_Files_Monkey/AntiPD1.pkml
+41   PKML_Files_Monkey/PKML_Files_Monkey/AntiPD1.pkml
+42   PKML_Files_Monkey/PKML_Files_Monkey/AntiPD1.pkml
+43    PKML_Files_Human/PKML_Files_Human/AntiIL6R.pkml
+44  PKML_Files_Monkey/PKML_Files_Monkey/AntiIL6R.pkml</code></pre>
+</div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb15"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="co"># ── Applications.xlsx ─────────────────────────────────────────────────────────</span></span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a><span class="co"># One sheet per scenario. Container path confirmed from V2 manual file.</span></span>
+<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a><span class="co"># All routes treated as 1-min bolus approximation (as per V2 convention).</span></span>
+<span id="cb15-4"><a href="#cb15-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-5"><a href="#cb15-5" aria-hidden="true" tabindex="-1"></a>APP_CONTAINER <span class="ot">&lt;-</span> <span class="st">"Events|IV_Bolus|Application_1|ProtocolSchemaItem"</span></span>
+<span id="cb15-6"><a href="#cb15-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-7"><a href="#cb15-7" aria-hidden="true" tabindex="-1"></a>wb_app <span class="ot">&lt;-</span> <span class="fu">createWorkbook</span>()</span>
+<span id="cb15-8"><a href="#cb15-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-9"><a href="#cb15-9" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (i <span class="cf">in</span> <span class="fu">seq_len</span>(<span class="fu">nrow</span>(scenarios))) {</span>
+<span id="cb15-10"><a href="#cb15-10" aria-hidden="true" tabindex="-1"></a>  s  <span class="ot">&lt;-</span> scenarios[i, ]</span>
+<span id="cb15-11"><a href="#cb15-11" aria-hidden="true" tabindex="-1"></a>  df <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(</span>
+<span id="cb15-12"><a href="#cb15-12" aria-hidden="true" tabindex="-1"></a>    <span class="st">`</span><span class="at">Container Path</span><span class="st">`</span>     <span class="ot">=</span> APP_CONTAINER,</span>
+<span id="cb15-13"><a href="#cb15-13" aria-hidden="true" tabindex="-1"></a>    <span class="st">`</span><span class="at">Parameter Name</span><span class="st">`</span>     <span class="ot">=</span> <span class="st">"DosePerBodyWeight"</span>,</span>
+<span id="cb15-14"><a href="#cb15-14" aria-hidden="true" tabindex="-1"></a>    <span class="at">Value                =</span> s<span class="sc">$</span>Dose,</span>
+<span id="cb15-15"><a href="#cb15-15" aria-hidden="true" tabindex="-1"></a>    <span class="at">Units                =</span> <span class="st">"mg/kg"</span>,</span>
+<span id="cb15-16"><a href="#cb15-16" aria-hidden="true" tabindex="-1"></a>    <span class="st">`</span><span class="at">Infusion time</span><span class="st">`</span>      <span class="ot">=</span> <span class="dv">1</span>,</span>
+<span id="cb15-17"><a href="#cb15-17" aria-hidden="true" tabindex="-1"></a>    <span class="st">`</span><span class="at">Infusion time unit</span><span class="st">`</span> <span class="ot">=</span> <span class="st">"min"</span>,</span>
+<span id="cb15-18"><a href="#cb15-18" aria-hidden="true" tabindex="-1"></a>    <span class="at">check.names =</span> <span class="cn">FALSE</span>, <span class="at">stringsAsFactors =</span> <span class="cn">FALSE</span></span>
+<span id="cb15-19"><a href="#cb15-19" aria-hidden="true" tabindex="-1"></a>  )</span>
+<span id="cb15-20"><a href="#cb15-20" aria-hidden="true" tabindex="-1"></a>  <span class="fu">addWorksheet</span>(wb_app, s<span class="sc">$</span>Sheet.name)</span>
+<span id="cb15-21"><a href="#cb15-21" aria-hidden="true" tabindex="-1"></a>  <span class="fu">writeData</span>(wb_app, s<span class="sc">$</span>Sheet.name, df)</span>
+<span id="cb15-22"><a href="#cb15-22" aria-hidden="true" tabindex="-1"></a>  <span class="fu">setColWidths</span>(wb_app, s<span class="sc">$</span>Sheet.name, <span class="at">cols =</span> <span class="dv">1</span><span class="sc">:</span><span class="dv">6</span>,</span>
+<span id="cb15-23"><a href="#cb15-23" aria-hidden="true" tabindex="-1"></a>               <span class="at">widths =</span> <span class="fu">c</span>(<span class="dv">55</span>, <span class="dv">22</span>, <span class="dv">8</span>, <span class="dv">8</span>, <span class="dv">14</span>, <span class="dv">18</span>))</span>
+<span id="cb15-24"><a href="#cb15-24" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb15-25"><a href="#cb15-25" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-26"><a href="#cb15-26" aria-hidden="true" tabindex="-1"></a>app_path <span class="ot">&lt;-</span> <span class="fu">file.path</span>(confdir, <span class="st">"Applications.xlsx"</span>)</span>
+<span id="cb15-27"><a href="#cb15-27" aria-hidden="true" tabindex="-1"></a><span class="fu">safe_save_xlsx</span>(wb_app, app_path)</span>
+<span id="cb15-28"><a href="#cb15-28" aria-hidden="true" tabindex="-1"></a><span class="fu">message</span>(<span class="st">"Applications.xlsx written: "</span>, <span class="fu">nrow</span>(scenarios), <span class="st">" sheets"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="co"># ── ModelParameters.xlsx ──────────────────────────────────────────────────────</span></span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a><span class="co"># One sheet per Molecule x Species, plus a Global sheet (empty).</span></span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a><span class="co"># Confirmed structure from V2 manual file: 6 parameters per sheet, short paths.</span></span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-5"><a href="#cb16-5" aria-hidden="true" tabindex="-1"></a>PARAM_NAMES <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"Kd (FcRn) in endosomal space"</span>, <span class="st">"Kd"</span>, <span class="st">"koff"</span>,</span>
+<span id="cb16-6"><a href="#cb16-6" aria-hidden="true" tabindex="-1"></a>                  <span class="st">"kint"</span>, <span class="st">"kdeg"</span>, <span class="st">"Reference concentration"</span>)</span>
+<span id="cb16-7"><a href="#cb16-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-8"><a href="#cb16-8" aria-hidden="true" tabindex="-1"></a>mol_species <span class="ot">&lt;-</span> scenarios <span class="sc">%&gt;%</span> <span class="fu">distinct</span>(Molecule, Species.label)</span>
+<span id="cb16-9"><a href="#cb16-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-10"><a href="#cb16-10" aria-hidden="true" tabindex="-1"></a>wb_mp <span class="ot">&lt;-</span> <span class="fu">createWorkbook</span>()</span>
+<span id="cb16-11"><a href="#cb16-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-12"><a href="#cb16-12" aria-hidden="true" tabindex="-1"></a><span class="co"># Global sheet — required by esqlabsR; empty = no project-wide overrides</span></span>
+<span id="cb16-13"><a href="#cb16-13" aria-hidden="true" tabindex="-1"></a><span class="fu">addWorksheet</span>(wb_mp, <span class="st">"Global"</span>)</span>
+<span id="cb16-14"><a href="#cb16-14" aria-hidden="true" tabindex="-1"></a><span class="fu">writeData</span>(wb_mp, <span class="st">"Global"</span>,</span>
+<span id="cb16-15"><a href="#cb16-15" aria-hidden="true" tabindex="-1"></a>          <span class="fu">data.frame</span>(<span class="st">`</span><span class="at">Container Path</span><span class="st">`</span> <span class="ot">=</span> <span class="cn">NA_character_</span>,</span>
+<span id="cb16-16"><a href="#cb16-16" aria-hidden="true" tabindex="-1"></a>                     <span class="st">`</span><span class="at">Parameter Name</span><span class="st">`</span> <span class="ot">=</span> <span class="cn">NA_character_</span>,</span>
+<span id="cb16-17"><a href="#cb16-17" aria-hidden="true" tabindex="-1"></a>                     <span class="at">Value =</span> <span class="cn">NA_real_</span>, <span class="at">Units =</span> <span class="cn">NA_character_</span>,</span>
+<span id="cb16-18"><a href="#cb16-18" aria-hidden="true" tabindex="-1"></a>                     <span class="at">check.names =</span> <span class="cn">FALSE</span>))</span>
+<span id="cb16-19"><a href="#cb16-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-20"><a href="#cb16-20" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (i <span class="cf">in</span> <span class="fu">seq_len</span>(<span class="fu">nrow</span>(mol_species))) {</span>
+<span id="cb16-21"><a href="#cb16-21" aria-hidden="true" tabindex="-1"></a>  mol  <span class="ot">&lt;-</span> mol_species<span class="sc">$</span>Molecule[i]</span>
+<span id="cb16-22"><a href="#cb16-22" aria-hidden="true" tabindex="-1"></a>  spec <span class="ot">&lt;-</span> mol_species<span class="sc">$</span>Species.label[i]</span>
+<span id="cb16-23"><a href="#cb16-23" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-24"><a href="#cb16-24" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Use human parameters file for human scenarios, monkey file for monkey</span></span>
+<span id="cb16-25"><a href="#cb16-25" aria-hidden="true" tabindex="-1"></a>  param_source <span class="ot">&lt;-</span> <span class="cf">if</span> (spec <span class="sc">==</span> <span class="st">"Human"</span>) params_long_human <span class="cf">else</span> params_long</span>
+<span id="cb16-26"><a href="#cb16-26" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-27"><a href="#cb16-27" aria-hidden="true" tabindex="-1"></a>  mol_rows <span class="ot">&lt;-</span> param_source <span class="sc">%&gt;%</span></span>
+<span id="cb16-28"><a href="#cb16-28" aria-hidden="true" tabindex="-1"></a>    <span class="fu">filter</span>(Drug.Name <span class="sc">==</span> mol, Parameter.Name <span class="sc">%in%</span> PARAM_NAMES) <span class="sc">%&gt;%</span></span>
+<span id="cb16-29"><a href="#cb16-29" aria-hidden="true" tabindex="-1"></a>    <span class="fu">mutate</span>(<span class="at">Parameter.Name =</span> <span class="fu">factor</span>(Parameter.Name, <span class="at">levels =</span> PARAM_NAMES)) <span class="sc">%&gt;%</span></span>
+<span id="cb16-30"><a href="#cb16-30" aria-hidden="true" tabindex="-1"></a>    <span class="fu">arrange</span>(Parameter.Name) <span class="sc">%&gt;%</span></span>
+<span id="cb16-31"><a href="#cb16-31" aria-hidden="true" tabindex="-1"></a>    <span class="fu">transmute</span>(</span>
+<span id="cb16-32"><a href="#cb16-32" aria-hidden="true" tabindex="-1"></a>      <span class="st">`</span><span class="at">Container Path</span><span class="st">`</span> <span class="ot">=</span> container_map[<span class="fu">as.character</span>(Parameter.Name)],</span>
+<span id="cb16-33"><a href="#cb16-33" aria-hidden="true" tabindex="-1"></a>      <span class="st">`</span><span class="at">Parameter Name</span><span class="st">`</span> <span class="ot">=</span> <span class="fu">as.character</span>(Parameter.Name),</span>
+<span id="cb16-34"><a href="#cb16-34" aria-hidden="true" tabindex="-1"></a>      <span class="at">Value            =</span> <span class="fu">as.numeric</span>(Value),</span>
+<span id="cb16-35"><a href="#cb16-35" aria-hidden="true" tabindex="-1"></a>      <span class="at">Units            =</span> unit_map[<span class="fu">as.character</span>(Parameter.Name)]</span>
+<span id="cb16-36"><a href="#cb16-36" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb16-37"><a href="#cb16-37" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-38"><a href="#cb16-38" aria-hidden="true" tabindex="-1"></a>  sheet_nm <span class="ot">&lt;-</span> <span class="fu">paste0</span>(mol, <span class="st">"_"</span>, spec)</span>
+<span id="cb16-39"><a href="#cb16-39" aria-hidden="true" tabindex="-1"></a>  <span class="fu">addWorksheet</span>(wb_mp, sheet_nm)</span>
+<span id="cb16-40"><a href="#cb16-40" aria-hidden="true" tabindex="-1"></a>  <span class="fu">writeData</span>(wb_mp, sheet_nm, mol_rows)</span>
+<span id="cb16-41"><a href="#cb16-41" aria-hidden="true" tabindex="-1"></a>  <span class="fu">setColWidths</span>(wb_mp, sheet_nm, <span class="at">cols =</span> <span class="dv">1</span><span class="sc">:</span><span class="dv">4</span>, <span class="at">widths =</span> <span class="fu">c</span>(<span class="dv">28</span>, <span class="dv">32</span>, <span class="dv">12</span>, <span class="dv">10</span>))</span>
+<span id="cb16-42"><a href="#cb16-42" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb16-43"><a href="#cb16-43" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-44"><a href="#cb16-44" aria-hidden="true" tabindex="-1"></a>mp_path <span class="ot">&lt;-</span> <span class="fu">file.path</span>(confdir, <span class="st">"ModelParameters.xlsx"</span>)</span>
+<span id="cb16-45"><a href="#cb16-45" aria-hidden="true" tabindex="-1"></a><span class="fu">safe_save_xlsx</span>(wb_mp, mp_path)</span>
+<span id="cb16-46"><a href="#cb16-46" aria-hidden="true" tabindex="-1"></a><span class="fu">message</span>(<span class="st">"ModelParameters.xlsx written: "</span>, <span class="fu">nrow</span>(mol_species),</span>
+<span id="cb16-47"><a href="#cb16-47" aria-hidden="true" tabindex="-1"></a>        <span class="st">" molecule x species sheets + Global"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb17"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="co"># ── Scenarios.xlsx ────────────────────────────────────────────────────────────</span></span>
+<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a><span class="co"># SimulationTime format confirmed from V2: multi-segment for high resolution</span></span>
+<span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a><span class="co"># in the first 12 h post-dose, then lower resolution for days 1-28.</span></span>
+<span id="cb17-4"><a href="#cb17-4" aria-hidden="true" tabindex="-1"></a>SIM_TIME <span class="ot">&lt;-</span> <span class="st">"0, 12, 12;  13, 672, 28 "</span></span>
+<span id="cb17-5"><a href="#cb17-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb17-6"><a href="#cb17-6" aria-hidden="true" tabindex="-1"></a>scen_sheet <span class="ot">&lt;-</span> scenarios <span class="sc">%&gt;%</span></span>
+<span id="cb17-7"><a href="#cb17-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">transmute</span>(</span>
+<span id="cb17-8"><a href="#cb17-8" aria-hidden="true" tabindex="-1"></a>    <span class="at">Scenario_name         =</span> Sheet.name,</span>
+<span id="cb17-9"><a href="#cb17-9" aria-hidden="true" tabindex="-1"></a>    <span class="at">IndividualId          =</span> <span class="cn">NA_character_</span>,</span>
+<span id="cb17-10"><a href="#cb17-10" aria-hidden="true" tabindex="-1"></a>    <span class="at">PopulationId          =</span> <span class="cn">NA_character_</span>,</span>
+<span id="cb17-11"><a href="#cb17-11" aria-hidden="true" tabindex="-1"></a>    <span class="at">ReadPopulationFromCSV =</span> <span class="cn">NA_character_</span>,</span>
+<span id="cb17-12"><a href="#cb17-12" aria-hidden="true" tabindex="-1"></a>    <span class="at">ModelParameterSheets  =</span> <span class="fu">paste0</span>(<span class="st">'"Global", "'</span>, Molecule, <span class="st">"_"</span>, Species.label, <span class="st">'"'</span>),</span>
+<span id="cb17-13"><a href="#cb17-13" aria-hidden="true" tabindex="-1"></a>    <span class="at">ApplicationProtocol   =</span> Sheet.name,</span>
+<span id="cb17-14"><a href="#cb17-14" aria-hidden="true" tabindex="-1"></a>    <span class="at">SimulationTime        =</span> SIM_TIME,</span>
+<span id="cb17-15"><a href="#cb17-15" aria-hidden="true" tabindex="-1"></a>    <span class="at">SimulationTimeUnit    =</span> <span class="st">"h"</span>,</span>
+<span id="cb17-16"><a href="#cb17-16" aria-hidden="true" tabindex="-1"></a>    <span class="at">SteadyState           =</span> <span class="cn">NA_character_</span>,</span>
+<span id="cb17-17"><a href="#cb17-17" aria-hidden="true" tabindex="-1"></a>    <span class="at">SteadyStateTime       =</span> <span class="cn">NA_character_</span>,</span>
+<span id="cb17-18"><a href="#cb17-18" aria-hidden="true" tabindex="-1"></a>    <span class="at">SteadyStateTimeUnit   =</span> <span class="cn">NA_character_</span>,</span>
+<span id="cb17-19"><a href="#cb17-19" aria-hidden="true" tabindex="-1"></a>    <span class="at">ModelFile             =</span> PKML.File,</span>
+<span id="cb17-20"><a href="#cb17-20" aria-hidden="true" tabindex="-1"></a>    <span class="at">OutputPathsIds        =</span> <span class="st">"PVB"</span></span>
+<span id="cb17-21"><a href="#cb17-21" aria-hidden="true" tabindex="-1"></a>  )</span>
+<span id="cb17-22"><a href="#cb17-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb17-23"><a href="#cb17-23" aria-hidden="true" tabindex="-1"></a>output_paths <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(</span>
+<span id="cb17-24"><a href="#cb17-24" aria-hidden="true" tabindex="-1"></a>  <span class="at">OutputPathId =</span> <span class="st">"PVB"</span>,</span>
+<span id="cb17-25"><a href="#cb17-25" aria-hidden="true" tabindex="-1"></a>  <span class="at">OutputPath   =</span> <span class="st">"Organism|PeripheralVenousBlood|mAb|Plasma (Peripheral Venous Blood)"</span>,</span>
+<span id="cb17-26"><a href="#cb17-26" aria-hidden="true" tabindex="-1"></a>  <span class="at">stringsAsFactors =</span> <span class="cn">FALSE</span></span>
+<span id="cb17-27"><a href="#cb17-27" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb17-28"><a href="#cb17-28" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb17-29"><a href="#cb17-29" aria-hidden="true" tabindex="-1"></a>wb_scen <span class="ot">&lt;-</span> <span class="fu">createWorkbook</span>()</span>
+<span id="cb17-30"><a href="#cb17-30" aria-hidden="true" tabindex="-1"></a><span class="fu">addWorksheet</span>(wb_scen, <span class="st">"Scenarios"</span>)</span>
+<span id="cb17-31"><a href="#cb17-31" aria-hidden="true" tabindex="-1"></a><span class="fu">writeData</span>(wb_scen, <span class="st">"Scenarios"</span>, scen_sheet)</span>
+<span id="cb17-32"><a href="#cb17-32" aria-hidden="true" tabindex="-1"></a><span class="fu">setColWidths</span>(wb_scen, <span class="st">"Scenarios"</span>, <span class="at">cols =</span> <span class="dv">1</span><span class="sc">:</span><span class="dv">13</span>,</span>
+<span id="cb17-33"><a href="#cb17-33" aria-hidden="true" tabindex="-1"></a>             <span class="at">widths =</span> <span class="fu">c</span>(<span class="dv">32</span>, <span class="dv">12</span>, <span class="dv">12</span>, <span class="dv">20</span>, <span class="dv">30</span>, <span class="dv">32</span>, <span class="dv">22</span>, <span class="dv">18</span>, <span class="dv">12</span>, <span class="dv">14</span>, <span class="dv">18</span>, <span class="dv">20</span>, <span class="dv">14</span>))</span>
+<span id="cb17-34"><a href="#cb17-34" aria-hidden="true" tabindex="-1"></a><span class="fu">addWorksheet</span>(wb_scen, <span class="st">"OutputPaths"</span>)</span>
+<span id="cb17-35"><a href="#cb17-35" aria-hidden="true" tabindex="-1"></a><span class="fu">writeData</span>(wb_scen, <span class="st">"OutputPaths"</span>, output_paths)</span>
+<span id="cb17-36"><a href="#cb17-36" aria-hidden="true" tabindex="-1"></a><span class="fu">setColWidths</span>(wb_scen, <span class="st">"OutputPaths"</span>, <span class="at">cols =</span> <span class="dv">1</span><span class="sc">:</span><span class="dv">2</span>, <span class="at">widths =</span> <span class="fu">c</span>(<span class="dv">22</span>, <span class="dv">65</span>))</span>
+<span id="cb17-37"><a href="#cb17-37" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb17-38"><a href="#cb17-38" aria-hidden="true" tabindex="-1"></a>scen_path <span class="ot">&lt;-</span> <span class="fu">file.path</span>(confdir, <span class="st">"Scenarios.xlsx"</span>)</span>
+<span id="cb17-39"><a href="#cb17-39" aria-hidden="true" tabindex="-1"></a><span class="fu">safe_save_xlsx</span>(wb_scen, scen_path)</span>
+<span id="cb17-40"><a href="#cb17-40" aria-hidden="true" tabindex="-1"></a><span class="fu">message</span>(<span class="st">"Scenarios.xlsx written: "</span>, <span class="fu">nrow</span>(scen_sheet), <span class="st">" scenarios"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb18"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="co"># ── Verification ──────────────────────────────────────────────────────────────</span></span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a>conf_files <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"Applications.xlsx"</span>, <span class="st">"ModelParameters.xlsx"</span>, <span class="st">"Scenarios.xlsx"</span>)</span>
+<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a>tibble<span class="sc">::</span><span class="fu">tibble</span>(</span>
+<span id="cb18-5"><a href="#cb18-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">File    =</span> conf_files,</span>
+<span id="cb18-6"><a href="#cb18-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">Exists  =</span> <span class="fu">file.exists</span>(<span class="fu">file.path</span>(confdir, conf_files)),</span>
+<span id="cb18-7"><a href="#cb18-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">Size_KB =</span> <span class="fu">round</span>(<span class="fu">file.size</span>(<span class="fu">file.path</span>(confdir, conf_files)) <span class="sc">/</span> <span class="dv">1024</span>, <span class="dv">1</span>)</span>
+<span id="cb18-8"><a href="#cb18-8" aria-hidden="true" tabindex="-1"></a>) <span class="sc">%&gt;%</span></span>
+<span id="cb18-9"><a href="#cb18-9" aria-hidden="true" tabindex="-1"></a>  knitr<span class="sc">::</span><span class="fu">kable</span>(<span class="at">caption =</span> <span class="st">"Configuration files written to Configurations/"</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb18-10"><a href="#cb18-10" aria-hidden="true" tabindex="-1"></a>  kableExtra<span class="sc">::</span><span class="fu">kable_styling</span>(<span class="at">bootstrap_options =</span> <span class="fu">c</span>(<span class="st">"striped"</span>, <span class="st">"condensed"</span>),</span>
+<span id="cb18-11"><a href="#cb18-11" aria-hidden="true" tabindex="-1"></a>                            <span class="at">full_width =</span> <span class="cn">FALSE</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<table class="table table-striped table-condensed caption-top table-sm small">
+<caption>Configuration files written to Configurations/</caption>
+<thead>
+<tr class="header">
+<th style="text-align: left;" data-quarto-table-cell-role="th">File</th>
+<th style="text-align: left;" data-quarto-table-cell-role="th">Exists</th>
+<th style="text-align: right;" data-quarto-table-cell-role="th">Size_KB</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">Applications.xlsx</td>
+<td style="text-align: left;">TRUE</td>
+<td style="text-align: right;">78.3</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">ModelParameters.xlsx</td>
+<td style="text-align: left;">TRUE</td>
+<td style="text-align: right;">34.5</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Scenarios.xlsx</td>
+<td style="text-align: left;">TRUE</td>
+<td style="text-align: right;">10.4</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</section>
+
+</main>
+<!-- /main column -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+</div> <!-- /content -->
+
+
+
+
+</body></html>

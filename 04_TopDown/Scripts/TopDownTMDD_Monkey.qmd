@@ -1,0 +1,1086 @@
+---
+title: "Top-down QSS TMDD fits for monkey IV PK"
+format: html
+---
+
+# Set up
+
+```{r}
+#| label: setup
+#| echo: true
+#| warning: false
+#| message: false
+
+rm(list = ls())
+
+library(tidyverse)
+library(data.table)
+library(scales)
+library(openxlsx)
+library(knitr)
+library(kableExtra)
+library(nlmixr2)
+library(rxode2)
+library(nlmixr2lib)
+
+datadir <- if (dir.exists("../../01_Data")) "../../01_Data" else "01_Data"
+outdir <- if (dir.exists("../SimsOutputs") || dir.exists("../Scripts")) "../SimsOutputs/" else "04_TopDown/SimsOutputs/"
+dir.create(outdir, recursive = TRUE, showWarnings = FALSE)
+figures_dir <- file.path(outdir, "Figures")
+dir.create(figures_dir, recursive = TRUE, showWarnings = FALSE)
+
+AUC_END_H <- 28 * 24
+FORCE_RERUN <- FALSE
+
+normalize_names <- function(x) {
+  x %>%
+    str_replace_all("\\.+", ".") %>%
+    str_replace_all("\\s+", ".") %>%
+    str_replace_all("\\[", "") %>%
+    str_replace_all("\\]", "") %>%
+    str_replace_all("\\(", "") %>%
+    str_replace_all("\\)", "")
+}
+
+normalize_species <- function(x) {
+  case_when(
+    str_to_lower(x) %in% c("nhp", "monkey", "cynomolgus monkey") ~ "Monkey",
+    TRUE ~ str_to_title(x)
+  )
+}
+
+unit_to_hour <- function(time, unit) {
+  unit_l <- str_to_lower(str_trim(unit))
+  case_when(
+    unit_l %in% c("h", "hr", "hrs", "hour", "hours") ~ as.numeric(time),
+    unit_l %in% c("min", "mins", "minute", "minutes") ~ as.numeric(time) / 60,
+    unit_l %in% c("day", "days", "d") ~ as.numeric(time) * 24,
+    TRUE ~ as.numeric(time)
+  )
+}
+
+conc_ugml_to_nm <- function(conc_ugml, mw_g_mol) {
+  as.numeric(conc_ugml) * 1e6 / as.numeric(mw_g_mol)
+}
+
+conc_nm_to_ugml <- function(conc_nm, mw_g_mol) {
+  as.numeric(conc_nm) * as.numeric(mw_g_mol) / 1e6
+}
+
+dose_mgkg_to_nmolkg <- function(dose_mgkg, mw_g_mol) {
+  as.numeric(dose_mgkg) * 1e6 / as.numeric(mw_g_mol)
+}
+
+convert_rate_to_h <- function(value, unit) {
+  unit_l <- str_to_lower(str_trim(unit))
+  case_when(
+    unit_l %in% c("1/min", "min^-1", "1/minute") ~ as.numeric(value) * 60,
+    TRUE ~ as.numeric(value)
+  )
+}
+
+convert_kd_to_nm <- function(value, unit) {
+  unit_l <- str_to_lower(str_trim(unit))
+  unit_l <- str_replace_all(unit_l, "[^[:ascii:]]", "u")
+  case_when(
+    unit_l %in% c("um", "umol/l", "umol/litre", "umol/liter", "umol/l") ~ as.numeric(value) * 1000,
+    unit_l %in% c("nm", "nmol/l", "nmol/litre", "nmol/liter") ~ as.numeric(value),
+    TRUE ~ as.numeric(value)
+  )
+}
+
+bounded_start <- function(x, default, lower, upper) {
+  x <- suppressWarnings(as.numeric(x))
+  x[!is.finite(x) | x <= 0] <- default
+  pmin(pmax(x, lower), upper)
+}
+
+run_result_path <- function(run_name) {
+  file.path(outdir, paste0("TopDownTMDD_", run_name, "_Monkey.rds"))
+}
+
+fit_or_read_run <- function(run_name, fit_expr, force = FORCE_RERUN) {
+  result_file <- run_result_path(run_name)
+  if (file.exists(result_file) && !isTRUE(force)) {
+    message("Reading cached ", run_name, " results from ", result_file)
+    return(readRDS(result_file))
+  }
+
+  result <- force(fit_expr)
+  saveRDS(result, result_file)
+  message("Saved ", run_name, " results to ", result_file)
+  result
+}
+
+terminal_lambda_z <- function(time_h, conc) {
+  df <- tibble(time_h = as.numeric(time_h), conc = as.numeric(conc)) %>%
+    filter(is.finite(time_h), is.finite(conc), conc > 0) %>%
+    arrange(time_h)
+
+  if (nrow(df) < 3) return(NA_real_)
+
+  tail_df <- tail(df, min(4, nrow(df)))
+  fit <- tryCatch(lm(log(conc) ~ time_h, data = tail_df), error = function(e) NULL)
+  if (is.null(fit)) return(NA_real_)
+
+  lambda <- -unname(coef(fit)[["time_h"]])
+  if (!is.finite(lambda) || lambda <= 0) NA_real_ else lambda
+}
+
+trapz_auc <- function(time, conc, t_end = Inf) {
+  keep <- !is.na(time) & !is.na(conc) & conc > 0 & time <= t_end
+  t <- as.numeric(time[keep])
+  c <- as.numeric(conc[keep])
+  if (length(t) < 2) return(NA_real_)
+
+  ord <- order(t)
+  t <- t[ord]
+  c <- c[ord]
+  dt <- diff(t)
+  c1 <- c[-length(c)]
+  c2 <- c[-1]
+  use_log <- c1 != c2 & c1 > 0 & c2 > 0
+  sum(ifelse(use_log, dt * (c1 - c2) / log(c1 / c2), dt * (c1 + c2) / 2))
+}
+
+fmt_fe <- function(x) {
+  cell_spec(
+    ifelse(is.na(x), "", formatC(x, format = "f", digits = 2)),
+    background = ifelse(!is.na(x) & x >= 0.5 & x <= 2, "#d4edda", "#f8d7da"),
+    color = ifelse(!is.na(x) & x >= 0.5 & x <= 2, "#155724", "#721c24"),
+    bold = TRUE
+  )
+}
+
+safe_ofv <- function(fit) {
+  candidates <- list(
+    quote(fit$objf),
+    quote(fit$objective),
+    quote(fit$OBJF),
+    quote(fit$ofv)
+  )
+  for (expr in candidates) {
+    val <- tryCatch(eval(expr), error = function(e) NULL)
+    if (!is.null(val) && length(val) > 0 && is.finite(as.numeric(val)[1])) {
+      return(as.numeric(val)[1])
+    }
+  }
+  NA_real_
+}
+
+if (.Platform$OS.type == "windows" && identical(unname(Sys.which("make")), "")) {
+  warning(
+    "Rtools/make was not found on PATH. nlmixr2/rxode2 model compilation may fail; ",
+    "run nlmixr2::nlmixr2CheckInstall() if Run1 reports rxode2 compile errors.",
+    call. = FALSE
+  )
+}
+```
+
+# Read data and parameters
+
+```{r}
+#| label: read-data
+
+obs_raw <- read.csv(
+  file.path(datadir, "Monkey", "mAb_data_clean.csv"),
+  stringsAsFactors = FALSE,
+  check.names = FALSE
+)
+names(obs_raw) <- normalize_names(names(obs_raw))
+
+param_raw <- read.xlsx(file.path(datadir, "Monkey", "Parameters.xlsx"), sheet = "Included")
+names(param_raw) <- normalize_names(names(param_raw))
+included_molecules <- unique(param_raw$Drug.Name)
+
+obs_points <- obs_raw %>%
+  transmute(
+    Study.Id = as.character(.data[["Study.Id"]]),
+    Subject.Id = coalesce(
+      na_if(as.character(.data[["Subject.Id"]]), "."),
+      na_if(as.character(.data[["Group.Id"]]), "."),
+      as.character(.data[["Study.Id"]])
+    ),
+    Species = normalize_species(.data[["Species"]]),
+    Dose = as.numeric(.data[["Dose"]]),
+    Molecule = .data[["Molecule"]],
+    MW = as.numeric(.data[["Molecular.Weight"]]),
+    Time_h = unit_to_hour(.data[["Time"]], .data[["Time.unit"]]),
+    Conc_ugmL = as.numeric(.data[["Measurement"]]),
+    Conc_unit = .data[["Measurement.unit"]],
+    Route = .data[["Route"]]
+  ) %>%
+  filter(
+    Species == "Monkey",
+    Molecule %in% included_molecules,
+    Route %in% c("IV", "IV Bolus"),
+    str_to_lower(Conc_unit) %in% c("ug/ml", "microgram/ml", "micrograms/ml"),
+    !is.na(Time_h),
+    !is.na(Conc_ugmL),
+    Conc_ugmL > 0
+  ) %>%
+  mutate(
+    Profile = paste(Molecule, Dose, Subject.Id, Study.Id, sep = "_"),
+    ID = as.integer(factor(Profile)),
+    DV = conc_ugml_to_nm(Conc_ugmL, MW)
+  )
+
+obs <- obs_points %>%
+  group_by(Molecule, Species, Dose, MW, Time_h) %>%
+  summarise(
+    Conc_ugmL = median(Conc_ugmL, na.rm = TRUE),
+    DV = median(DV, na.rm = TRUE),
+    n_points = n(),
+    .groups = "drop"
+  ) %>%
+  arrange(Molecule, Dose, Time_h) %>%
+  mutate(
+    Study.Id = "Median_by_molecule_dose_time",
+    Subject.Id = paste(Molecule, Dose, "median", sep = "_"),
+    Route = "IV",
+    Profile = paste(Molecule, Dose, sep = "_"),
+    ID = as.integer(factor(Profile))
+  ) %>%
+  select(
+    Study.Id, Subject.Id, Species, Dose, Molecule, MW, Time_h,
+    Conc_ugmL, Route, Profile, ID, DV, n_points
+  )
+
+stopifnot(length(unique(obs$Molecule)) == 8)
+
+params <- param_raw %>%
+  transmute(
+    Molecule = .data[["Drug.Name"]],
+    Target = .data[["Target.Name"]],
+    Parameter = .data[["Parameter.Name.in.PK-Sim"]],
+    Value = as.numeric(.data[["Value.from.Source"]]),
+    Unit = .data[["Unit"]],
+    Source = .data[["Source"]]
+  ) %>%
+  filter(Molecule %in% unique(obs$Molecule)) %>%
+  mutate(
+    parameter_key = case_when(
+      str_detect(str_to_lower(Parameter), "^kd$") ~ "kd_nm",
+      str_to_lower(Parameter) == "koff" ~ "koff_h",
+      str_to_lower(Parameter) == "kint" ~ "kint_h",
+      str_to_lower(Parameter) == "kdeg" ~ "kdeg_h",
+      str_to_lower(Parameter) == "reference concentration" ~ "ref_nm",
+      TRUE ~ NA_character_
+    ),
+    unit_for_conversion = case_when(
+      parameter_key == "koff_h" &
+        !coalesce(str_detect(str_to_lower(Unit), "1/|min|h|hour"), FALSE) ~ "1/min",
+      TRUE ~ Unit
+    ),
+    value_std = case_when(
+      parameter_key == "kd_nm" ~ convert_kd_to_nm(Value, Unit),
+      parameter_key == "ref_nm" ~ convert_kd_to_nm(Value, Unit),
+      parameter_key == "koff_h" ~ convert_rate_to_h(Value, unit_for_conversion),
+      parameter_key %in% c("kint_h", "kdeg_h") ~ convert_rate_to_h(Value, Unit),
+      TRUE ~ NA_real_
+    )
+  ) %>%
+  filter(!is.na(parameter_key)) %>%
+  select(Molecule, Target, parameter_key, value_std) %>%
+  pivot_wider(names_from = parameter_key, values_from = value_std) %>%
+  mutate(
+    kon_inv_nmh = koff_h / kd_nm,
+    kss_qss_nm = (koff_h + kint_h) / kon_inv_nmh,
+    MW = map_dbl(Molecule, ~ unique(obs$MW[obs$Molecule == .x])[1])
+  )
+
+unit_audit <- param_raw %>%
+  transmute(
+    Molecule = .data[["Drug.Name"]],
+    Parameter = .data[["Parameter.Name.in.PK-Sim"]],
+    Value = as.numeric(.data[["Value.from.Source"]]),
+    Unit = .data[["Unit"]]
+  ) %>%
+  filter(
+    Molecule %in% unique(obs$Molecule),
+    Parameter %in% c("Kd", "koff", "kint", "kdeg")
+  ) %>%
+  left_join(
+    params %>%
+      select(Molecule, kd_nm, koff_h, kint_h, kdeg_h, kon_inv_nmh, kss_qss_nm),
+    by = "Molecule"
+  )
+
+knitr::kable(params, digits = 4, caption = "Fixed monkey TMDD inputs used by the top-down fits")
+knitr::kable(unit_audit, digits = 4, caption = "Unit conversion audit for TMDD input parameters")
+
+obs %>%
+  count(Molecule, Dose, ID, name = "n_time_points") %>%
+  arrange(Molecule, Dose) %>%
+  knitr::kable(caption = "Median monkey single-dose IV profiles used for fitting after resetting IDs")
+
+obs %>%
+  distinct(Molecule, Dose, ID, MW) %>%
+  transmute(
+    Molecule,
+    Dose_mg_kg = Dose,
+    ID,
+    Dose_events_per_ID = 1L,
+    Dose_time_h = 0,
+    Dose_nmol_kg = dose_mgkg_to_nmolkg(Dose, MW)
+  ) %>%
+  arrange(Molecule, Dose_mg_kg) %>%
+  knitr::kable(digits = 4, caption = "Single-dose IV event audit: one dose at time zero per molecule-dose profile")
+
+profile_starts <- obs %>%
+  group_by(Molecule, Dose, MW) %>%
+  summarise(
+    dose_nmolkg = dose_mgkg_to_nmolkg(first(Dose), first(MW)),
+    cmax_nm = max(DV, na.rm = TRUE),
+    lambda_z_h = terminal_lambda_z(Time_h, DV),
+    vc_lkg = dose_nmolkg / cmax_nm,
+    cl_lhkg = lambda_z_h * vc_lkg,
+    .groups = "drop"
+  )
+
+initial_estimates <- profile_starts %>%
+  group_by(Molecule) %>%
+  summarise(
+    lcl_init = log(bounded_start(median(cl_lhkg, na.rm = TRUE), 0.01, 1e-4, 0.2)),
+    lvc_init = log(bounded_start(median(vc_lkg, na.rm = TRUE), 0.05, 0.005, 0.5)),
+    lq_init = log(bounded_start(median(cl_lhkg, na.rm = TRUE) * 0.5, 0.005, 1e-5, 0.2)),
+    lvp_init = log(bounded_start(median(vc_lkg, na.rm = TRUE) * 1.5, 0.08, 0.005, 1.0)),
+    add_err_init = bounded_start(0.05 * median(cmax_nm, na.rm = TRUE), 0.5, 1e-4, 1000),
+    .groups = "drop"
+  ) %>%
+  left_join(params %>% select(Molecule, ref_nm, kdeg_h), by = "Molecule") %>%
+  mutate(
+    lr0_init = log(bounded_start(ref_nm, 0.1, 1e-5, 1e4)),
+    lkdeg_init = log(bounded_start(kdeg_h, 0.03, 1e-5, 10)),
+    prop_err_init = 0.12,
+    CL_init_L_h_kg = exp(lcl_init),
+    Vc_init_L_kg = exp(lvc_init),
+    Q_init_L_h_kg = exp(lq_init),
+    Vp_init_L_kg = exp(lvp_init),
+    Rtot_init_nM = exp(lr0_init),
+    kdeg_init_h = exp(lkdeg_init)
+  )
+
+initial_estimates %>%
+  select(
+    Molecule, CL_init_L_h_kg, Vc_init_L_kg, Q_init_L_h_kg, Vp_init_L_kg,
+    Rtot_init_nM, kdeg_init_h, prop_err_init, add_err_init
+  ) %>%
+  knitr::kable(digits = 4, caption = "Data-driven initial estimates used by nlmixr2")
+```
+
+# TMDD QSS model helpers
+
+The QSS model follows the two-compartment QSS TMDD form used in the Pumas and Monolix examples: central drug is treated as total ligand, total target is an ODE state, and free ligand/free target/complex are computed algebraically. Concentration-bearing quantities are in nM, time is in hours, amount is nmol/kg, and volume/clearance are weight-normalized.
+
+For this top-down exercise, the target baseline is estimated as `Rtot`. Target synthesis is handled explicitly as:
+
+`ksyn = Rtot * kdeg_target`.
+
+The QSS binding constant is fixed from the in vitro kinetic inputs:
+
+`Kss = (koff + kint) / kon`, where `kon = koff / KD`.
+
+Run 1 fixes `kdeg_target` to the parameter workbook value and estimates `Rtot`. Run 2 estimates both `Rtot` and `kdeg_target`. Run 3 fixes `Rtot` to the value provided in the input dataset and estimates `CL` and `kint`.
+Unless otherwise stated for a run, the structural PK terms are fixed to data-derived monkey profile starts so the top-down step does not try to solve a poorly identified joint PK/TMDD problem from median-only profiles.
+
+```{r}
+#| label: model-helpers
+
+make_fit_data <- function(dat) {
+  dat_obs <- dat %>%
+    arrange(ID, Time_h) %>%
+    transmute(
+      ID,
+      TIME = Time_h,
+      DV,
+      AMT = NA_real_,
+      EVID = 0,
+      CMT = "centr",
+      Molecule,
+      Dose,
+      MW
+    )
+
+  dose_records <- dat %>%
+    distinct(ID, Molecule, Dose, MW) %>%
+    transmute(
+      ID,
+      TIME = 0,
+      DV = NA_real_,
+      AMT = dose_mgkg_to_nmolkg(Dose, MW),
+      EVID = 1,
+      CMT = "centr",
+      Molecule,
+      Dose,
+      MW
+    )
+
+  bind_rows(dose_records, dat_obs) %>%
+    arrange(ID, TIME, desc(EVID)) %>%
+    as.data.frame()
+}
+
+build_qss_model <- function(kd_nm, kon_inv_nmh, kint_h, kdeg_h = NULL, kss_nm = NULL, estimate_kdeg = FALSE, init = NULL) {
+  kd_nm <- signif(as.numeric(kd_nm), 8)
+  kon_inv_nmh <- signif(as.numeric(kon_inv_nmh), 8)
+  kint_h <- signif(as.numeric(kint_h), 8)
+  kdeg_h <- signif(as.numeric(kdeg_h), 8)
+  kss_nm <- signif(as.numeric(kss_nm), 8)
+  default_init <- list(
+    lcl_init = log(0.015),
+    lvc_init = log(0.045),
+    lq_init = log(0.020),
+    lvp_init = log(0.055),
+    lr0_init = log(0.1),
+    lkdeg_init = log(max(kdeg_h, 1e-4)),
+    prop_err_init = 0.09,
+    add_err_init = 10
+  )
+  init <- modifyList(default_init, as.list(init))
+  init <- lapply(init, function(x) signif(as.numeric(x)[1], 8))
+
+  if (estimate_kdeg) {
+    model_txt <- glue::glue("
+      function() {{
+        ini({{
+          lcl <- fixed({init$lcl_init})
+          lvc <- fixed({init$lvc_init})
+          lq <- fixed({init$lq_init})
+          lvp <- fixed({init$lvp_init})
+          lr0 <- c(log(1e-8), {init$lr0_init}, log(1e4))
+          lkdeg <- c(log(1e-4), {init$lkdeg_init}, log(2))
+          prop.err <- c(1e-4, {init$prop_err_init}, 1.5)
+          add.err <- c(1e-4, {init$add_err_init}, 1e4)
+        }})
+        model({{
+          cl <- exp(lcl)
+          vc <- exp(lvc)
+          q <- exp(lq)
+          vp <- exp(lvp)
+          r0 <- exp(lr0)
+          kdeg <- exp(lkdeg)
+          kd <- {kd_nm}
+          kon <- {kon_inv_nmh}
+          kint <- {kint_h}
+          kss <- {kss_nm}
+          ksyn <- r0 * kdeg
+
+          Ltot <- centr / vc
+          Cp <- peri / vp
+          free_drug <- 0.5 * ((Ltot - total_target - kss) + sqrt((Ltot - total_target - kss)^2 + 4 * kss * Ltot + 1e-12))
+          complex <- Ltot - free_drug
+          free_target <- total_target - complex
+
+          d/dt(centr) = -cl * free_drug - q * free_drug + q * Cp - kint * complex * vc
+          d/dt(peri) = q * free_drug - q * Cp
+          d/dt(total_target) = ksyn - kdeg * free_target - kint * complex
+          total_target(0) = r0
+
+          Ltot ~ add(add.err) + prop(prop.err)
+        }})
+      }}
+    ")
+  } else {
+    model_txt <- glue::glue("
+      function() {{
+        ini({{
+          lcl <- fixed({init$lcl_init})
+          lvc <- fixed({init$lvc_init})
+          lq <- fixed({init$lq_init})
+          lvp <- fixed({init$lvp_init})
+          lr0 <- c(log(1e-8), {init$lr0_init}, log(1e4))
+          prop.err <- c(1e-4, {init$prop_err_init}, 1.5)
+          add.err <- c(1e-4, {init$add_err_init}, 1e4)
+        }})
+        model({{
+          cl <- exp(lcl)
+          vc <- exp(lvc)
+          q <- exp(lq)
+          vp <- exp(lvp)
+          r0 <- exp(lr0)
+          kdeg <- {kdeg_h}
+          kd <- {kd_nm}
+          kon <- {kon_inv_nmh}
+          kint <- {kint_h}
+          kss <- {kss_nm}
+          ksyn <- r0 * kdeg
+
+          Ltot <- centr / vc
+          Cp <- peri / vp
+          free_drug <- 0.5 * ((Ltot - total_target - kss) + sqrt((Ltot - total_target - kss)^2 + 4 * kss * Ltot + 1e-12))
+          complex <- Ltot - free_drug
+          free_target <- total_target - complex
+
+          d/dt(centr) = -cl * free_drug - q * free_drug + q * Cp - kint * complex * vc
+          d/dt(peri) = q * free_drug - q * Cp
+          d/dt(total_target) = ksyn - kdeg * free_target - kint * complex
+          total_target(0) = r0
+
+          Ltot ~ add(add.err) + prop(prop.err)
+        }})
+      }}
+    ")
+  }
+
+  eval(parse(text = model_txt))
+}
+
+extract_fit_table <- function(fit, run_name, molecule, param_row) {
+  fixed <- tryCatch(fixef(fit), error = function(e) NULL)
+  if (is.null(fixed) || length(fixed) == 0) {
+    fixed <- tryCatch(coef(fit)$fixed, error = function(e) NULL)
+  }
+  if (is.null(fixed) || length(fixed) == 0) {
+    par_fixed <- tryCatch(fit$parFixed, error = function(e) NULL)
+    if (is.data.frame(par_fixed) && "Est." %in% names(par_fixed)) {
+      fixed <- setNames(suppressWarnings(as.numeric(par_fixed[["Est."]])), rownames(par_fixed))
+    }
+  }
+  if (is.null(fixed) || length(fixed) == 0) stop("Could not extract fixed effects from fit object")
+
+  theta <- tibble(
+    parameter = names(fixed),
+    estimate = as.numeric(fixed)
+  )
+
+  get_est <- function(parameter) {
+    val <- theta$estimate[theta$parameter == parameter]
+    if (length(val) == 0) NA_real_ else as.numeric(val[1])
+  }
+
+  rtot <- exp(get_est("lr0"))
+  kdeg <- if ("lkdeg" %in% theta$parameter) exp(get_est("lkdeg")) else param_row$kdeg_h
+  kss <- param_row$kss_qss_nm
+
+  tibble(
+    Run = run_name,
+    Molecule = molecule,
+    OFV = safe_ofv(fit),
+    Rtot_nM = rtot,
+    kdeg_h = kdeg,
+    Kss_nM = kss,
+    CL_L_h_kg = exp(get_est("lcl")),
+    Vc_L_kg = exp(get_est("lvc")),
+    Q_L_h_kg = exp(get_est("lq")),
+    Vp_L_kg = exp(get_est("lvp")),
+    Fit_Status = "success",
+    Fit_Error = NA_character_
+  )
+}
+
+extract_predictions <- function(fit, run_name, molecule, mw) {
+  pred_df <- as.data.frame(fit)
+  names(pred_df) <- toupper(names(pred_df))
+  pred_col <- intersect(c("IPRED", "PRED", "LTOT", "CC", "CTOT", "CP"), names(pred_df))[1]
+  if (is.na(pred_col)) {
+    stop("No prediction column found for ", molecule, " ", run_name)
+  }
+
+  if ("EVID" %in% names(pred_df)) {
+    pred_df <- filter(pred_df, EVID == 0 | is.na(EVID))
+  }
+
+  pred_df %>%
+    transmute(
+      Run = run_name,
+      ID = as.integer(ID),
+      TIME = as.numeric(TIME),
+      DV = as.numeric(DV),
+      Pred_nM = as.numeric(.data[[pred_col]]),
+      Pred_ugmL = conc_nm_to_ugml(Pred_nM, mw),
+      Molecule = molecule
+    )
+}
+
+qss_rxode_model <- rxode2::rxode({
+  Ltot <- centr / vc
+  Cp <- peri / vp
+  free_drug <- 0.5 * ((Ltot - total_target - kss) + sqrt((Ltot - total_target - kss)^2 + 4 * kss * Ltot + 1e-12))
+  complex <- Ltot - free_drug
+  free_target <- total_target - complex
+
+  d/dt(centr) = -cl * free_drug - q * free_drug + q * Cp - kint * complex * vc
+  d/dt(peri) = q * free_drug - q * Cp
+  d/dt(total_target) = ksyn - kdeg * free_target - kint * complex
+})
+
+simulate_qss_profiles <- function(dat_mol, theta, run_name) {
+  map_dfr(unique(dat_mol$ID), function(profile_id) {
+    dat_id <- dat_mol %>%
+      filter(ID == profile_id) %>%
+      arrange(Time_h)
+
+    dose_nmolkg <- dose_mgkg_to_nmolkg(dat_id$Dose[1], dat_id$MW[1])
+    event_table <- data.frame(
+      id = profile_id,
+      time = c(0, dat_id$Time_h),
+      amt = c(dose_nmolkg, rep(NA_real_, nrow(dat_id))),
+      evid = c(1, rep(0, nrow(dat_id))),
+      cmt = "centr"
+    )
+
+    sol <- rxode2::rxSolve(
+      qss_rxode_model,
+      params = theta,
+      events = event_table,
+      inits = c(centr = 0, peri = 0, total_target = theta[["r0"]]),
+      rtol = 1e-6,
+      atol = 1e-9,
+      hmin = 1e-12,
+      maxsteps = 100000,
+      returnType = "data.frame"
+    ) %>%
+      as_tibble() %>%
+      transmute(
+        ID = as.integer(profile_id),
+        TIME = as.numeric(time),
+        Pred_nM = pmax(as.numeric(Ltot), 0)
+      )
+
+    dat_id %>%
+      transmute(
+        Run = run_name,
+        ID,
+        TIME = Time_h,
+        DV,
+        Molecule,
+        MW
+      ) %>%
+      left_join(sol, by = c("ID", "TIME")) %>%
+      mutate(
+        Pred_ugmL = conc_nm_to_ugml(Pred_nM, MW)
+      ) %>%
+      select(Run, ID, TIME, DV, Pred_nM, Pred_ugmL, Molecule)
+  })
+}
+
+qss_objective <- function(log_par, dat_mol, par_mol, init_mol, run_name, estimate_kdeg = FALSE, estimate_cl = FALSE, estimate_kint = FALSE, fixed_rtot = FALSE) {
+  cl <- if (estimate_cl) exp(log_par[["lcl"]]) else init_mol$CL_init_L_h_kg
+  r0 <- if (fixed_rtot) init_mol$Rtot_init_nM else exp(log_par[["lr0"]])
+  kdeg <- if (estimate_kdeg) exp(log_par[["lkdeg"]]) else par_mol$kdeg_h
+  kint <- if (estimate_kint) exp(log_par[["lkint"]]) else par_mol$kint_h
+  prop_err <- exp(log_par[["lprop"]])
+  add_err <- exp(log_par[["ladd"]])
+
+  theta <- c(
+    cl = cl,
+    vc = init_mol$Vc_init_L_kg,
+    q = init_mol$Q_init_L_h_kg,
+    vp = init_mol$Vp_init_L_kg,
+    r0 = r0,
+    kdeg = kdeg,
+    kint = kint,
+    kss = (par_mol$koff_h + kint) / par_mol$kon_inv_nmh,
+    ksyn = r0 * kdeg
+  )
+
+  pred <- tryCatch(
+    simulate_qss_profiles(dat_mol, theta, run_name),
+    error = function(e) NULL
+  )
+  if (is.null(pred) || any(!is.finite(pred$Pred_nM))) return(1e100)
+
+  sd <- pmax(add_err + prop_err * pmax(pred$Pred_nM, 0), 1e-8)
+  residual <- (pred$DV - pred$Pred_nM) / sd
+  sum(log(2 * pi * sd^2) + residual^2)
+}
+
+fit_qss_bobyqa <- function(dat_mol, par_mol, init_mol, run_name, estimate_kdeg = FALSE, estimate_cl = FALSE, estimate_kint = FALSE, fixed_rtot = FALSE) {
+  start <- c()
+  lower <- c()
+  upper <- c()
+
+  if (estimate_cl) {
+    start <- c(start, lcl = init_mol$lcl_init)
+    lower <- c(lower, lcl = log(1e-4))
+    upper <- c(upper, lcl = log(0.5))
+  }
+
+  if (!fixed_rtot) {
+    start <- c(start, lr0 = init_mol$lr0_init)
+    lower <- c(lower, lr0 = log(1e-8))
+    upper <- c(upper, lr0 = log(1e4))
+  }
+
+  if (estimate_kdeg) {
+    start <- c(start, lkdeg = init_mol$lkdeg_init)
+    lower <- c(lower, lkdeg = log(1e-4))
+    upper <- c(upper, lkdeg = log(2))
+  }
+
+  if (estimate_kint) {
+    start <- c(start, lkint = log(bounded_start(par_mol$kint_h, 0.03, 1e-5, 10)))
+    lower <- c(lower, lkint = log(1e-5))
+    upper <- c(upper, lkint = log(10))
+  }
+
+  start <- c(start, lprop = log(init_mol$prop_err_init), ladd = log(init_mol$add_err_init))
+  lower <- c(lower, lprop = log(1e-4), ladd = log(1e-4))
+  upper <- c(upper, lprop = log(1.5), ladd = log(1e4))
+
+  start <- pmin(pmax(start, lower + 1e-8), upper - 1e-8)
+  par_names <- names(start)
+  objective_named <- function(par, ...) {
+    names(par) <- par_names
+    qss_objective(par, ...)
+  }
+
+  opt <- minqa::bobyqa(
+    par = start,
+    fn = objective_named,
+    lower = lower,
+    upper = upper,
+    control = list(maxfun = 1200, rhobeg = 0.2, rhoend = 1e-6),
+    dat_mol = dat_mol,
+    par_mol = par_mol,
+    init_mol = init_mol,
+    run_name = run_name,
+    estimate_kdeg = estimate_kdeg,
+    estimate_cl = estimate_cl,
+    estimate_kint = estimate_kint,
+    fixed_rtot = fixed_rtot
+  )
+  opt$par <- setNames(opt$par, par_names)
+
+  cl <- if (estimate_cl) exp(opt$par[["lcl"]]) else init_mol$CL_init_L_h_kg
+  r0 <- if (fixed_rtot) init_mol$Rtot_init_nM else exp(opt$par[["lr0"]])
+  kdeg <- if (estimate_kdeg) exp(opt$par[["lkdeg"]]) else par_mol$kdeg_h
+  kint <- if (estimate_kint) exp(opt$par[["lkint"]]) else par_mol$kint_h
+  theta <- c(
+    cl = cl,
+    vc = init_mol$Vc_init_L_kg,
+    q = init_mol$Q_init_L_h_kg,
+    vp = init_mol$Vp_init_L_kg,
+    r0 = r0,
+    kdeg = kdeg,
+    kint = kint,
+    kss = (par_mol$koff_h + kint) / par_mol$kon_inv_nmh,
+    ksyn = r0 * kdeg
+  )
+
+  list(
+    opt = opt,
+    theta = theta,
+    predictions = simulate_qss_profiles(dat_mol, theta, run_name)
+  )
+}
+
+fit_one_molecule <- function(molecule, run_name, estimate_kdeg = FALSE, estimate_cl = FALSE, estimate_kint = FALSE, fixed_rtot = FALSE) {
+  dat_mol <- filter(obs, Molecule == molecule)
+  par_mol <- filter(params, Molecule == molecule)
+  init_mol <- filter(initial_estimates, Molecule == molecule)
+
+  message(
+    "Starting ", molecule, " ", run_name,
+    ": CL=", signif(init_mol$CL_init_L_h_kg, 3),
+    " L/h/kg, Vc=", signif(init_mol$Vc_init_L_kg, 3),
+    " L/kg, Rtot=", signif(init_mol$Rtot_init_nM, 3),
+    " nM"
+  )
+
+  fit <- fit_qss_bobyqa(dat_mol, par_mol, init_mol, run_name, estimate_kdeg, estimate_cl, estimate_kint, fixed_rtot)
+
+  list(
+    fit = fit,
+    summary = tibble(
+      Run = run_name,
+      Molecule = molecule,
+      OFV = fit$opt$fval,
+      Rtot_nM = fit$theta[["r0"]],
+      kdeg_h = fit$theta[["kdeg"]],
+      kint_h = fit$theta[["kint"]],
+      Kss_nM = fit$theta[["kss"]],
+      CL_L_h_kg = fit$theta[["cl"]],
+      Vc_L_kg = fit$theta[["vc"]],
+      Q_L_h_kg = fit$theta[["q"]],
+      Vp_L_kg = fit$theta[["vp"]],
+      Fit_Status = ifelse(fit$opt$ierr == 0, "success", paste0("bobyqa_ierr_", fit$opt$ierr)),
+      Fit_Error = ifelse(fit$opt$ierr == 0, NA_character_, fit$opt$msg)
+    ),
+    predictions = fit$predictions
+  )
+}
+
+safe_fit_one_molecule <- function(molecule, run_name, estimate_kdeg = FALSE, estimate_cl = FALSE, estimate_kint = FALSE, fixed_rtot = FALSE) {
+  tryCatch(
+    fit_one_molecule(molecule, run_name, estimate_kdeg, estimate_cl, estimate_kint, fixed_rtot),
+    error = function(e) {
+      warning(run_name, " failed for ", molecule, ": ", conditionMessage(e), call. = FALSE)
+      list(
+        fit = NULL,
+        summary = tibble(
+          Run = run_name,
+          Molecule = molecule,
+          OFV = NA_real_,
+          Rtot_nM = NA_real_,
+          kdeg_h = NA_real_,
+          kint_h = NA_real_,
+          Kss_nM = NA_real_,
+          CL_L_h_kg = NA_real_,
+          Vc_L_kg = NA_real_,
+          Q_L_h_kg = NA_real_,
+          Vp_L_kg = NA_real_,
+          Fit_Status = "failed",
+          Fit_Error = conditionMessage(e)
+        ),
+        predictions = tibble(
+          Run = character(),
+          ID = integer(),
+          TIME = numeric(),
+          DV = numeric(),
+          Pred_nM = numeric(),
+          Pred_ugmL = numeric(),
+          Molecule = character()
+        )
+      )
+    }
+  )
+}
+```
+
+# TMDD QSS Fits: Run1
+
+```{r}
+#| label: Run1
+#| warning: false
+#| message: false
+
+molecules <- sort(unique(obs$Molecule))
+
+run1_fits <- fit_or_read_run(
+  "Run1_Rtot",
+  set_names(molecules) %>%
+    map(~ safe_fit_one_molecule(.x, run_name = "Run1_Rtot", estimate_kdeg = FALSE))
+)
+
+run1_fit_summary <- map_dfr(run1_fits, "summary")
+run1_predictions <- map_dfr(run1_fits, "predictions")
+
+run1_fit_summary %>%
+  select(Run, Molecule, Fit_Status, OFV, Rtot_nM, kdeg_h, kint_h, Kss_nM, CL_L_h_kg, Fit_Error) %>%
+  arrange(Molecule) %>%
+  kable(digits = 4, caption = "Run 1: QSS TMDD fits estimating Rtot")
+```
+
+# TMDD QSS Fits: Run2
+
+```{r}
+#| label: Run2
+#| warning: false
+#| message: false
+
+run2_fits <- fit_or_read_run(
+  "Run2_Rtot_kdeg",
+  set_names(molecules) %>%
+    map(~ safe_fit_one_molecule(.x, run_name = "Run2_Rtot_kdeg", estimate_kdeg = TRUE))
+)
+
+run2_fit_summary <- map_dfr(run2_fits, "summary")
+run2_predictions <- map_dfr(run2_fits, "predictions")
+
+run2_fit_summary %>%
+  select(Run, Molecule, Fit_Status, OFV, Rtot_nM, kdeg_h, kint_h, Kss_nM, CL_L_h_kg, Fit_Error) %>%
+  arrange(Molecule) %>%
+  kable(digits = 4, caption = "Run 2: QSS TMDD fits estimating Rtot and kdeg")
+```
+
+# TMDD QSS Fits: Run3
+
+```{r}
+#| label: Run3
+#| warning: false
+#| message: false
+
+run3_fits <- fit_or_read_run(
+  "Run3_CL_kint_fixed_Rtot",
+  set_names(molecules) %>%
+    map(~ safe_fit_one_molecule(
+      .x,
+      run_name = "Run3_CL_kint_fixed_Rtot",
+      estimate_cl = TRUE,
+      estimate_kint = TRUE,
+      fixed_rtot = TRUE
+    ))
+)
+
+run3_fit_summary <- map_dfr(run3_fits, "summary")
+run3_predictions <- map_dfr(run3_fits, "predictions")
+
+run3_fit_summary %>%
+  select(Run, Molecule, Fit_Status, OFV, Rtot_nM, kdeg_h, kint_h, Kss_nM, CL_L_h_kg, Fit_Error) %>%
+  arrange(Molecule) %>%
+  kable(digits = 4, caption = "Run 3: QSS TMDD fits estimating CL and kint with fixed dataset Rtot")
+```
+
+# Process outputs
+
+```{r}
+#| label: process-outputs
+
+fit_summary <- bind_rows(run1_fit_summary, run3_fit_summary) %>%
+  arrange(Molecule, Run)
+
+predictions <- bind_rows(run1_predictions, run3_predictions)
+
+obs_metrics <- obs %>%
+  group_by(Molecule, Dose, ID) %>%
+  summarise(
+    Obs_Cmax = max(Conc_ugmL, na.rm = TRUE),
+    Obs_AUC = trapz_auc(Time_h, Conc_ugmL, t_end = AUC_END_H),
+    .groups = "drop"
+  ) %>%
+  group_by(Molecule, Dose) %>%
+  summarise(
+    Obs_Cmax = mean(Obs_Cmax, na.rm = TRUE),
+    Obs_AUC = mean(Obs_AUC, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+pred_metrics <- predictions %>%
+  left_join(obs %>% distinct(ID, Molecule, Dose), by = c("ID", "Molecule")) %>%
+  group_by(Run, Molecule, Dose, ID) %>%
+  summarise(
+    Pred_Cmax = max(Pred_ugmL, na.rm = TRUE),
+    Pred_AUC = trapz_auc(TIME, Pred_ugmL, t_end = AUC_END_H),
+    .groups = "drop"
+  ) %>%
+  group_by(Run, Molecule, Dose) %>%
+  summarise(
+    Pred_Cmax = mean(Pred_Cmax, na.rm = TRUE),
+    Pred_AUC = mean(Pred_AUC, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+metrics_tbl <- pred_metrics %>%
+  left_join(obs_metrics, by = c("Molecule", "Dose")) %>%
+  mutate(
+    FE_Cmax = Pred_Cmax / Obs_Cmax,
+    FE_AUC = Pred_AUC / Obs_AUC
+  ) %>%
+  arrange(Molecule, Dose, Run)
+
+ofv_rtot_tbl <- fit_summary %>%
+  select(Run, Molecule, Fit_Status, OFV, Rtot_nM, kdeg_h, kint_h, Kss_nM, CL_L_h_kg, Fit_Error) %>%
+  arrange(Molecule, Run)
+
+ofv_rtot_tbl %>%
+  kable(digits = 4, caption = "OFV and estimated top-down TMDD parameters by molecule and run")
+
+metrics_tbl %>%
+  mutate(
+    Obs_Cmax = round(Obs_Cmax, 2),
+    Pred_Cmax = round(Pred_Cmax, 2),
+    FE_Cmax = map_chr(FE_Cmax, fmt_fe),
+    Obs_AUC = round(Obs_AUC, 1),
+    Pred_AUC = round(Pred_AUC, 1),
+    FE_AUC = map_chr(FE_AUC, fmt_fe)
+  ) %>%
+  select(
+    Run, Molecule, Dose,
+    `Observed Cmax (ug/mL)` = Obs_Cmax,
+    `Predicted Cmax (ug/mL)` = Pred_Cmax,
+    `FE Cmax` = FE_Cmax,
+    `Observed AUC0-672h (ug*h/mL)` = Obs_AUC,
+    `Predicted AUC0-672h (ug*h/mL)` = Pred_AUC,
+    `FE AUC` = FE_AUC
+  ) %>%
+  kbl(
+    escape = FALSE,
+    digits = 3,
+    caption = "Observed and fitted Cmax/AUC with fold error by molecule and run"
+  ) %>%
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed"),
+    full_width = FALSE,
+    font_size = 13
+  )
+
+write.xlsx(
+  list(
+    OFV_Rtot = ofv_rtot_tbl,
+    Metrics = metrics_tbl,
+    Fixed_TMDD_Inputs = params,
+    Predictions = predictions
+  ),
+  file.path(outdir, "TopDownTMDD_results.xlsx"),
+  overwrite = TRUE
+)
+
+saveRDS(
+  list(
+    fit_summary = fit_summary,
+    ofv_rtot_tbl = ofv_rtot_tbl,
+    metrics_tbl = metrics_tbl,
+    predictions = predictions
+  ),
+  file.path(outdir, "TopDownTMDD_Run1_Run3_processed_Monkey.rds")
+)
+
+write.csv(ofv_rtot_tbl, file.path(outdir, "TopDownTMDD_OFV_Rtot_Monkey.csv"), row.names = FALSE)
+write.csv(metrics_tbl, file.path(outdir, "TopDownTMDD_metrics_Monkey.csv"), row.names = FALSE)
+```
+
+# Diagnostic plots
+
+```{r}
+#| label: diagnostic-plots
+#| fig-width: 10
+#| fig-height: 7
+
+ggplot() +
+  geom_line(
+    data = predictions %>%
+      filter(Run == "Run3_CL_kint_fixed_Rtot", TIME <= AUC_END_H) %>%
+      left_join(obs %>% distinct(ID, Molecule, Dose), by = c("ID", "Molecule")) %>%
+      left_join(params %>% distinct(Molecule, Target), by = "Molecule") %>%
+      arrange(Target, Molecule, Dose, TIME) %>%
+      mutate(
+        Facet = factor(paste(Target, Molecule, sep = " | "),
+                       levels = unique(paste(Target, Molecule, sep = " | ")))
+      ),
+    aes(TIME, Pred_ugmL, color = factor(Dose), group = interaction(Dose, ID)),
+    linewidth = 0.8
+  ) +
+  geom_point(
+    data = obs %>%
+      filter(Time_h <= AUC_END_H) %>%
+      left_join(params %>% distinct(Molecule, Target), by = "Molecule") %>%
+      arrange(Target, Molecule, Dose, Time_h) %>%
+      mutate(
+        Facet = factor(paste(Target, Molecule, sep = " | "),
+                       levels = unique(paste(Target, Molecule, sep = " | ")))
+      ),
+    aes(Time_h, Conc_ugmL, color = factor(Dose)),
+    size = 1.7
+  ) +
+  facet_wrap(~ Facet, scales = "free_y", ncol = 3) +
+  scale_x_continuous(
+    limits = c(0, AUC_END_H),
+    breaks = seq(0, AUC_END_H, by = 168),
+    labels = function(x) x / 24
+  ) +
+  scale_y_log10(
+    labels = label_number(drop0trailing = TRUE),
+    breaks = 10^seq(-2, 4)
+  ) +
+  scale_color_viridis_d(name = "Dose (mg/kg)", option = "D", end = 0.88) +
+  labs(
+    x = "Time post dose (days)",
+    y = "Plasma Concentration (ug/mL)",
+    title = "Monkey top-down QSS TMDD fitted profiles",
+    subtitle = "Run 3 final model: CL and kint estimated, dataset Rtot fixed | Window = 0-28 days post dose"
+  ) +
+  theme_bw(base_size = 11) +
+  theme(
+    strip.background = element_rect(fill = "grey93"),
+    strip.text = element_text(face = "bold", size = 8),
+    legend.position = "bottom",
+    panel.grid.minor = element_blank()
+  )
+
+ggsave(
+  file.path(figures_dir, "TopDownTMDD_Run3_Monkey_ObsPred.png"),
+  last_plot(), width = 12, height = 8, dpi = 150
+)
+```

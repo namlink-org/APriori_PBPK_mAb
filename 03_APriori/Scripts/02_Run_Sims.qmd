@@ -1,0 +1,98 @@
+---
+
+title: "02_Run_Sims.qmd"
+
+format: html
+
+---
+
+
+
+```{r}
+
+#| echo: true
+
+#| warning: false
+
+#| message: false
+
+rm(list=ls())
+
+library(tidyverse)
+library(readxl)
+library(openxlsx)
+library(purrr)
+library(esqlabsR)
+
+# # Set working directory to this script location when running interactively
+# if (requireNamespace("rstudioapi", quietly = TRUE) && rstudioapi::isAvailable()) {
+#   doc_path <- rstudioapi::getActiveDocumentContext()
+#   if (nchar(doc_path) > 0) setwd(dirname(doc_path))
+# }
+setwd("C:/Users/krina/OneDrive/NAMs/APriori_PBPK_NAM/03_APriori/Scripts")
+
+```
+
+
+
+```{r}
+myProjectConfiguration <- createProjectConfiguration("../ProjectConfiguration.xlsx")
+
+# Create `ScenarioConfiguration` objects from excel files
+
+scenarioConfigurations <- readScenarioConfigurationFromExcel(
+
+  scenarioNames = NULL,
+
+  projectConfiguration = myProjectConfiguration
+
+)
+
+
+
+# Create simulation scenarios defined in the excel files and apply the custom parameters
+
+myScenarios <- createScenarios(
+
+  scenarioConfigurations = scenarioConfigurations)
+
+
+
+# Adjust simulation run options, if necessary.
+
+# E.g. disable check for negative values if required
+
+simulationRunOptions <- ospsuite::SimulationRunOptions$new()
+
+simulationRunOptions$checkForNegativeValues <- FALSE
+
+# Use all logical cores minus one so the OS stays responsive.
+# Cap at 8 to avoid PK-Sim memory issues on very large machines.
+simulationRunOptions$numberOfCores <- min(8L, max(1L, parallel::detectCores() - 1L))
+
+
+
+# Run simulations
+
+simulatedScenariosResults <- runScenarios(
+
+  scenarios = myScenarios,
+
+  simulationRunOptions = simulationRunOptions
+
+)
+
+# Save results and store the path to the results for later re-use
+
+outputFolder <- saveScenarioResults(simulatedScenariosResults, myProjectConfiguration)
+
+# Remove PKML files written by esqlabsR — only CSVs are needed downstream
+
+pkml_files <- list.files(outputFolder, pattern = "\\.pkml$",
+                         full.names = TRUE, recursive = TRUE)
+if (length(pkml_files) > 0) {
+  file.remove(pkml_files)
+  message("Removed ", length(pkml_files), " PKML file(s) from results folder")
+}
+
+```
