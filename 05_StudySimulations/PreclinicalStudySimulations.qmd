@@ -16,9 +16,7 @@ This test workflow:
 
 1. generates 100 virtual cynomolgus monkeys;
 2. samples six drug/target parameters for each of eight mAbs and FcRn
-   expression with 40% CV,
-   plus endosomal clearance and whole-body lymph flow with 30% CV, using Latin
-   hypercube sampling from log-normal distributions;
+   expression using Latin hypercube sampling from log-normal distributions;
 3. runs 0.3, 3, and 10 mg/kg simulations for every mAb and monkey;
 4. calculates both rich-grid ("true") and experimentally sparse AUC~0-672h~;
    and
@@ -50,9 +48,7 @@ set.seed(20260624)
 N_VIRTUAL       <- 100L
 PARAMETER_CV    <- 0.30
 FCRN_CV         <- 0.30
-LYMPH_FLOW_CV   <- 0.30
-ENDOSOMAL_CL_CV <- 0.30
-OBSERVATION_CV  <- 0.20
+OBSERVATION_CV  <- 0.15
 EFFECT_FOLD     <- 2
 AUC_END_H       <- 28 * 24
 ALPHA           <- 0.05
@@ -75,6 +71,8 @@ STUDY_THEME <- theme_bw(base_size = 12) +
   theme(
     legend.position = "bottom",
     plot.title = element_text(face = "bold"),
+    axis.title = element_text(face = "bold"),
+    strip.text = element_text(face = "bold"),
     panel.grid.minor = element_blank()
   )
 
@@ -104,10 +102,51 @@ population_dir  <- file.path(config_dir, "PopulationsCSV")
 output_root     <- file.path(study_dir, "SimsOutputs")
 figure_dir      <- file.path(output_root, "Figures")
 table_dir       <- file.path(output_root, "Tables")
+simulation_results_dir <- file.path(output_root, "SimulationResults")
 
 walk(
-  c(config_dir, population_dir, output_root, figure_dir, table_dir),
+  c(
+    config_dir, population_dir, output_root, figure_dir, table_dir,
+    simulation_results_dir
+  ),
   ~ dir.create(.x, recursive = TRUE, showWarnings = FALSE)
+)
+
+safe_unlink_within <- function(paths, root, recursive = FALSE) {
+  paths <- paths[file.exists(paths)]
+  if (length(paths) == 0L) return(invisible(character()))
+
+  normalized_root <- normalizePath(root, winslash = "/", mustWork = TRUE)
+  normalized_paths <- normalizePath(paths, winslash = "/", mustWork = TRUE)
+  inside_root <- startsWith(
+    paste0(normalized_paths, "/"),
+    paste0(normalized_root, "/")
+  )
+  if (!all(inside_root)) {
+    stop("Refusing to delete path outside ", normalized_root)
+  }
+
+  unlink(normalized_paths, recursive = recursive, force = TRUE)
+  if (any(file.exists(normalized_paths))) {
+    stop(
+      "Could not delete: ",
+      paste(normalized_paths[file.exists(normalized_paths)], collapse = ", ")
+    )
+  }
+  invisible(normalized_paths)
+}
+
+# Remove figures no longer produced by this workflow so stale files cannot be
+# mistaken for outputs from the current run.
+safe_unlink_within(
+  file.path(
+    figure_dir,
+    c(
+      "All_mAbs_sparse_vs_rich_AUC.png",
+      "All_mAbs_power_vs_sample_size.png"
+    )
+  ),
+  output_root
 )
 
 safe_save_workbook <- function(wb, path) {
@@ -271,59 +310,6 @@ fcrn_source <- tibble(
   Parameter_class = "Physiology"
 )
 
-# Endosomal clearance is the first-order loss rate from vascular endosomes.
-# In the original model it is calculated as:
-#
-#   endosomal uptake rate - endosomal recycling rate
-#
-# Sampling this parameter directly therefore overrides that formula for each
-# virtual monkey. This is intentional here because the requested IIV represents
-# variability in net lysosomal/endosomal loss beyond variability already
-# encoded in the drug-specific parameters.
-endosomal_clearance_source <- tibble(
-  Drug = "Physiology",
-  Target = "Endosomal system",
-  Parameter = "Specific clearance (endosome)",
-  Typical = 0.2052,
-  CV = ENDOSOMAL_CL_CV,
-  Parameter_class = "Physiology"
-)
-
-# Lymph flow is organ specific in PK-Sim. We sample one whole-body multiplier
-# per monkey and apply it to every organ's baseline "Lymph flow
-# proportionality factor." This preserves the physiological organ-to-organ
-# pattern while adding correlated 30% IIV in overall lymphatic return.
-#
-# The baseline factors are read directly from the AntiPD1 monkey model rather
-# than duplicated manually in this script.
-trace_simulation <- loadSimulation(
-  file.path(
-    project_dir, "00_Models", "PKML_Files_Monkey",
-    "PKML_Files_Monkey", "AntiPD1.pkml"
-  ),
-  loadFromCache = FALSE
-)
-lymph_parameters <- getAllParametersMatching(
-  "Organism|*|Lymph flow proportionality factor",
-  trace_simulation
-)
-lymph_baseline <- tibble(
-  Path = map_chr(lymph_parameters, ~ .x$path),
-  Typical = map_dbl(lymph_parameters, ~ .x$value),
-  Units = map_chr(lymph_parameters, ~ .x$unit)
-) %>%
-  filter(!str_detect(Path, "EndogenousIgG"))
-stopifnot(nrow(lymph_baseline) == 15L)
-
-lymph_multiplier_source <- tibble(
-  Drug = "Physiology",
-  Target = "Lymphatic return",
-  Parameter = "Whole-body lymph flow multiplier",
-  Typical = 1,
-  CV = LYMPH_FLOW_CV,
-  Parameter_class = "Physiology"
-)
-
 container_map <- c(
   "Kd (FcRn) in endosomal space" = "mAb",
   "Kd" = "mAb-Target-InVitro",
@@ -345,19 +331,15 @@ unit_map <- c(
 container_map <- c(
   container_map,
   "Start concentration of free FcRn (endosome)" =
-    "Organism|EndogenousIgG|Endosome",
-  "Specific clearance (endosome)" = "Organism"
+    "Organism|EndogenousIgG|Endosome"
 )
 unit_map <- c(
   unit_map,
-  "Start concentration of free FcRn (endosome)" = "µmol/l",
-  "Specific clearance (endosome)" = "1/min"
+  "Start concentration of free FcRn (endosome)" = "µmol/l"
 )
 
 # Physiological draws are shared across mAbs for a given virtual monkey.
-physiology_source <- bind_rows(
-  fcrn_source, endosomal_clearance_source, lymph_multiplier_source
-)
+physiology_source <- fcrn_source
 physiology_lhs <- randomLHS(N_VIRTUAL, nrow(physiology_source))
 physiology_draws <- map2_dfc(
   seq_len(nrow(physiology_source)),
@@ -470,18 +452,6 @@ population_file_index <- map_dfr(MABS, function(drug) {
     "Organism|EndogenousIgG|Endosome|Start concentration of free FcRn (endosome)"
   ]] <- pop[["Start concentration of free FcRn (endosome)"]]
   pop[["Start concentration of free FcRn (endosome)"]] <- NULL
-
-  pop[["Organism|Specific clearance (endosome)"]] <-
-    pop[["Specific clearance (endosome)"]]
-  pop[["Specific clearance (endosome)"]] <- NULL
-
-  # Apply one correlated lymph-flow multiplier to all organ-specific factors.
-  for (i in seq_len(nrow(lymph_baseline))) {
-    pop[[lymph_baseline$Path[i]]] <-
-      physiology_draws[["Whole-body lymph flow multiplier"]] *
-      lymph_baseline$Typical[i]
-  }
-  pop[["Whole-body lymph flow multiplier"]] <- NULL
 
   population_id <- paste0(drug, "_Monkey_n", N_VIRTUAL)
   population_path <- file.path(population_dir, paste0(population_id, ".csv"))
@@ -695,6 +665,19 @@ project <- createProjectConfiguration(
 )
 
 if (RUN_PBPK) {
+  # A fresh PBPK run must never coexist with prior scenario-result folders.
+  prior_result_entries <- list.files(
+    simulation_results_dir,
+    full.names = TRUE,
+    all.files = TRUE,
+    no.. = TRUE
+  )
+  safe_unlink_within(
+    prior_result_entries,
+    simulation_results_dir,
+    recursive = TRUE
+  )
+
   scenario_configurations <- readScenarioConfigurationFromExcel(
     scenarioNames = scenario_grid$Scenario_name,
     projectConfiguration = project
@@ -712,6 +695,38 @@ if (RUN_PBPK) {
     simulationRunOptions = run_options
   )
   result_folder <- saveScenarioResults(simulation_results, project)
+
+  # esqlabsR may copy population CSVs and individual PKML files beneath the
+  # output folder while running. They are inputs/intermediates, not retained
+  # study results. Preserve the scenario result CSVs in result_folder.
+  output_pkml_files <- list.files(
+    output_root,
+    pattern = "\\.pkml$",
+    recursive = TRUE,
+    full.names = TRUE,
+    ignore.case = TRUE
+  )
+  population_csv_names <- paste0(
+    population_file_index$PopulationId, ".csv"
+  )
+  output_population_csvs <- list.files(
+    output_root,
+    pattern = "\\.csv$",
+    recursive = TRUE,
+    full.names = TRUE,
+    ignore.case = TRUE
+  )
+  output_population_csvs <- output_population_csvs[
+    basename(output_population_csvs) %in% population_csv_names |
+      str_detect(
+        str_replace_all(output_population_csvs, "\\\\", "/"),
+        "/PopulationsCSV/"
+      )
+  ]
+  safe_unlink_within(
+    c(output_pkml_files, output_population_csvs),
+    output_root
+  )
 } else {
   candidate_folders <- list.dirs(
     file.path(output_root, "SimulationResults"),
@@ -969,46 +984,14 @@ auc_summary %>%
   kable_styling(bootstrap_options = c("striped", "condensed"),
                 full_width = FALSE)
 
-sparse_auc_plot <- ggplot(
-  sparse_auc_replicates,
-  aes(
-    x = factor(Dose_mgkg),
-    y = Sparse_to_rich_ratio,
-    fill = factor(Dose_mgkg)
-  )
-) +
-  geom_hline(yintercept = 1, linetype = 2, color = "grey35") +
-  geom_boxplot(outlier.alpha = 0.15) +
-  facet_wrap(~ Drug, ncol = 4) +
-  labs(
-    x = "Dose (mg/kg)",
-    y = "Sparse AUC / rich PBPK AUC",
-    title = "Sparse-sampling AUC accuracy across eight mAbs",
-    subtitle = paste0(
-      N_SPARSE_REP, " observation-error replicates per virtual monkey; ",
-      scales::percent(OBSERVATION_CV), " observation CV"
-    )
-  ) +
-  scale_fill_viridis_d(
-    option = "D", direction = -1, begin = 0.15, end = 0.80,
-    guide = "none"
-  ) +
-  STUDY_THEME
-
-ggsave(
-  file.path(figure_dir, "All_mAbs_sparse_vs_rich_AUC.png"),
-  sparse_auc_plot, width = 8, height = 5.5, dpi = 300
-)
-sparse_auc_plot
 ```
 
 ## PBPK-informed power versus animals per group
 
 The two-sided test compares independent observed and PBPK-predicted log-AUC
 means. Both groups are sampled from the **sparse-AUC empirical distribution**,
-which includes drug/target IIV, FcRn-expression IIV, endosomal-clearance IIV,
-correlated whole-body lymph-flow IIV, sparse sampling, and 40% observation
-error. The observed group is shifted by `log(2)`.
+which includes drug/target IIV, FcRn-expression IIV, sparse sampling, and
+observation error. The observed group is shifted by `log(2)`.
 
 ```{r}
 #| label: power-functions
@@ -1057,34 +1040,6 @@ write.csv(
   file.path(table_dir, "All_mAbs_power_curve.csv"),
   row.names = FALSE
 )
-
-power_plot <- ggplot(
-  power_curve,
-  aes(x = N_per_group, y = Power, color = factor(Dose_mgkg))
-) +
-  geom_hline(yintercept = 0.8, linetype = 2, color = "grey35") +
-  geom_line(linewidth = 1) +
-  geom_point(size = 2.5) +
-  facet_wrap(~ Drug, ncol = 4) +
-  scale_color_viridis_d(
-    option = "D", direction = -1, begin = 0.15, end = 0.80
-  ) +
-  scale_x_continuous(breaks = N_PER_GROUP) +
-  scale_y_continuous(limits = c(0, 1), labels = scales::percent) +
-  labs(
-    x = "Observed animals per dose group",
-    y = "Power",
-    color = "Dose (mg/kg)",
-    title = "Power to detect a 2-fold AUC difference across eight mAbs",
-    subtitle = "Single-dose comparison; n = 2-5 observed animals per dose"
-  ) +
-  STUDY_THEME
-
-ggsave(
-  file.path(figure_dir, "All_mAbs_power_vs_sample_size.png"),
-  power_plot, width = 8, height = 5.5, dpi = 300
-)
-power_plot
 
 power_curve %>%
   select(
@@ -1278,7 +1233,7 @@ design_plot_b <- ggplot(
 
 ggsave(
   file.path(figure_dir, "All_mAbs_dose_design_fixed_n.png"),
-  design_plot_a, width = 8, height = 5.5, dpi = 300
+  design_plot_a, width = 6.5, height = 4.5, dpi = 300
 )
 ggsave(
   file.path(figure_dir, "All_mAbs_dose_design_fixed_total.png"),
