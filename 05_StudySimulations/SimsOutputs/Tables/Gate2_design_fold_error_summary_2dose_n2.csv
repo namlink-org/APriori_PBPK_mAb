@@ -1,0 +1,5 @@
+"Drug","Design","N_per_group","Total_animals","Probability_within_2fold","Median_max_symmetric_fold_error","Fold_error_5th_percentile","Fold_error_95th_percentile"
+"Atezolizumab","2 dose groups",2,4,1,1.13491106387152,1.03405642675549,1.32277336435302
+"Avelumab","2 dose groups",2,4,1,1.20652890564351,1.05060622332654,1.4724474130859
+"Nivolumab","2 dose groups",2,4,1,1.16218494296829,1.04655067884908,1.36988040784984
+"Pembrolizumab","2 dose groups",2,4,1,1.16472007751245,1.04908090277122,1.37636944713271

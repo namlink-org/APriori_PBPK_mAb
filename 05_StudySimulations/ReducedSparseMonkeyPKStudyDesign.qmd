@@ -1,0 +1,941 @@
+---
+title: "Reduced sparse monkey PK study design simulations"
+author: NAMLink
+format:
+  html:
+    toc: true
+    code-fold: true
+    theme: none
+    highlight-style: none
+    embed-resources: true
+execute:
+  warning: false
+  message: false
+prefer-html: true
+---
+
+## Purpose
+
+This workflow implements a two-gate decision analysis for using a priori PBPK
+and a reduced sparse monkey PK study to support monoclonal antibody PK
+characterization before human trial initiation.
+
+**Gate 1: a priori adequacy.** The a priori monkey prediction is compared with
+observed monkey PK exposure from the retrospective dataset. A molecule triggers
+a reduced monkey PK study if at least one a priori monkey AUC fold-error is
+outside the prespecified 2-fold interval.
+
+**Gate 2: reduced sparse-study adequacy.** For triggered molecules only, the
+top-down monkey model is treated as the retrospective reference for true monkey
+PK. The analysis asks whether a reduced sparse monkey PK study with small
+sample size can recover the top-down population exposure within 2-fold.
+
+Manuscript note: this analysis intentionally does not bias-correct the a priori
+model. Bias is part of Gate 1. Once Gate 1 fails, the reduced study design is
+evaluated against the observed-informed/top-down monkey reference, not against
+the a priori model.
+
+```{r}
+#| label: setup
+
+rm(list = ls())
+
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(rxode2)
+  library(knitr)
+  library(kableExtra)
+})
+
+set.seed(20260628)
+
+N_VIRTUAL <- 100L
+PARAMETER_CV <- 0.30
+FOLD_ACCEPTANCE <- 2
+AUC_END_H <- 28 * 24
+N_SIM <- 1000L
+N_PER_GROUP <- 2:5
+
+STUDY_DOSES <- c(0.3, 3, 10)
+DESIGN_DOSES <- list(
+  `2 dose groups` = c(0.3, 10),
+  `3 dose groups` = c(0.3, 3, 10)
+)
+
+SPARSE_TIME_H <- c(0.25, 1, 2, 4, 8, 1, 2, 6, 10, 14, 21, 28) *
+  c(rep(1, 5), rep(24, 7))
+SPARSE_TIME_H <- sort(unique(SPARSE_TIME_H))
+
+study_dir <- if (basename(normalizePath(".", winslash = "/", mustWork = TRUE)) ==
+                 "05_StudySimulations") {
+  normalizePath(".", winslash = "/", mustWork = TRUE)
+} else {
+  normalizePath("05_StudySimulations", winslash = "/", mustWork = TRUE)
+}
+project_dir <- normalizePath(file.path(study_dir, ".."), winslash = "/", mustWork = TRUE)
+topdown_dir <- file.path(project_dir, "04_TopDown", "SimsOutputs")
+data_dir <- file.path(project_dir, "01_Data", "Monkey")
+output_root <- file.path(study_dir, "SimsOutputs")
+figure_dir <- file.path(output_root, "Figures")
+table_dir <- file.path(output_root, "Tables")
+walk(c(output_root, figure_dir, table_dir), dir.create,
+     recursive = TRUE, showWarnings = FALSE)
+
+STUDY_THEME <- theme_bw(base_size = 15) +
+  theme(
+    legend.position = "bottom",
+    legend.text = element_text(size = 13),
+    plot.title = element_text(face = "bold", size = 18),
+    plot.subtitle = element_text(size = 13),
+    axis.title = element_text(face = "bold", size = 15),
+    axis.text = element_text(size = 12),
+    strip.text = element_text(face = "bold", size = 13),
+    panel.grid.minor = element_blank()
+  )
+
+make_lognormal <- function(u, typical, cv) {
+  sdlog <- sqrt(log1p(cv^2))
+  qlnorm(u, meanlog = log(typical), sdlog = sdlog)
+}
+
+random_quantiles <- function(n, p) {
+  matrix(runif(n * p), nrow = n, ncol = p)
+}
+
+conc_nm_to_ug_ml <- function(conc_nm, mw_g_mol) {
+  as.numeric(conc_nm) * as.numeric(mw_g_mol) / 1e6
+}
+
+dose_mgkg_to_nmolkg <- function(dose_mgkg, mw_g_mol) {
+  as.numeric(dose_mgkg) * 1e6 / as.numeric(mw_g_mol)
+}
+
+linup_logdown_auc <- function(time_h, concentration) {
+  keep <- is.finite(time_h) & is.finite(concentration) & concentration >= 0
+  time_h <- time_h[keep]
+  concentration <- concentration[keep]
+  ord <- order(time_h)
+  time_h <- time_h[ord]
+  concentration <- concentration[ord]
+  if (length(time_h) < 2L) return(NA_real_)
+
+  dt <- diff(time_h)
+  c1 <- head(concentration, -1)
+  c2 <- tail(concentration, -1)
+  declining <- c2 < c1 & c1 > 0 & c2 > 0
+  intervals <- dt * (c1 + c2) / 2
+  intervals[declining] <-
+    dt[declining] * (c1[declining] - c2[declining]) /
+    log(c1[declining] / c2[declining])
+  sum(intervals)
+}
+
+geometric_mean <- function(x) {
+  x <- x[is.finite(x) & x > 0]
+  exp(mean(log(x)))
+}
+
+within_fold <- function(estimate, reference, fold = FOLD_ACCEPTANCE) {
+  ratio <- estimate / reference
+  is.finite(ratio) && ratio >= 1 / fold && ratio <= fold
+}
+```
+
+## Gate 1: a priori adequacy screen
+
+The a priori adequacy screen uses the observed monkey fold-error table from the
+manuscript. Molecules with at least one a priori AUC fold-error outside
+0.5-2.0 are the molecules for which a reduced monkey PK study would be
+triggered.
+
+```{r}
+#| label: gate1-apriori-adequacy
+
+gate1_fold_error <- tribble(
+  ~Drug, ~Observed_dose_mgkg, ~APriori_Cmax_FE, ~Topdown_Cmax_FE, ~APriori_AUC_FE, ~Topdown_AUC_FE,
+  "Adalimumab",    3,   1.21, 0.99, 1.22, 1.20,
+  "Atezolizumab",  0.5, 1.42, 1.30, 2.27, 1.70,
+  "Atezolizumab",  5,   1.09, 0.99, 1.11, 1.19,
+  "Atezolizumab", 20,   0.86, 0.78, 0.87, 0.96,
+  "Avelumab",      5,   1.30, 0.96, 2.80, 1.20,
+  "Bevacizumab",   4,   1.14, 0.89, 0.64, 0.71,
+  "Bevacizumab",   5,   1.35, 1.08, 1.48, 1.60,
+  "Golimumab",     3,   0.80, 1.00, 1.00, 1.21,
+  "Nivolumab",     1,   0.97, 1.27, 0.62, 1.34,
+  "Nivolumab",    10,   0.74, 0.73, 0.49, 0.96,
+  "Pembrolizumab", 0.3, 0.40, 0.39, 2.39, 0.87,
+  "Pembrolizumab", 3,   0.99, 0.95, 2.88, 1.01,
+  "Pembrolizumab",30,   1.05, 0.97, 3.23, 1.08,
+  "Tocilizumab",  10,   1.06, 0.98, 1.80, 1.00
+) %>%
+  mutate(
+    APriori_AUC_within_2fold =
+      APriori_AUC_FE >= 1 / FOLD_ACCEPTANCE &
+      APriori_AUC_FE <= FOLD_ACCEPTANCE,
+    Trigger_reduced_PK = !APriori_AUC_within_2fold
+  )
+
+triggered_molecules <- gate1_fold_error %>%
+  group_by(Drug) %>%
+  summarise(
+    Trigger_reduced_PK = any(Trigger_reduced_PK),
+    Triggering_doses = paste(Observed_dose_mgkg[Trigger_reduced_PK],
+                             collapse = ", "),
+    .groups = "drop"
+  ) %>%
+  filter(Trigger_reduced_PK) %>%
+  pull(Drug)
+
+gate1_summary <- gate1_fold_error %>%
+  group_by(Drug) %>%
+  summarise(
+    AUC_dose_levels = n(),
+    AUC_levels_outside_2fold = sum(Trigger_reduced_PK),
+    Trigger_reduced_PK = any(Trigger_reduced_PK),
+    Triggering_doses_mgkg =
+      paste(Observed_dose_mgkg[Trigger_reduced_PK], collapse = ", "),
+    .groups = "drop"
+  )
+
+write.csv(
+  gate1_fold_error,
+  file.path(table_dir, "Gate1_monkey_apriori_fold_error_screen.csv"),
+  row.names = FALSE
+)
+write.csv(
+  gate1_summary,
+  file.path(table_dir, "Gate1_triggered_molecules.csv"),
+  row.names = FALSE
+)
+
+gate1_summary %>%
+  kable(
+    digits = 3,
+    caption = paste0(
+      "Gate 1 a priori adequacy screen. A reduced sparse monkey PK study is ",
+      "triggered when any a priori monkey AUC fold-error is outside ",
+      "0.5-", FOLD_ACCEPTANCE, "."
+    )
+  ) %>%
+  kable_styling(bootstrap_options = c("striped", "condensed"),
+                full_width = FALSE)
+```
+
+Manuscript note: the triggered molecules are `r paste(triggered_molecules, collapse = ", ")`.
+These are the molecules carried forward into the reduced-study design
+simulation.
+
+## Build top-down reference population
+
+The top-down monkey model is treated as the retrospective reference for true
+monkey PK among Gate 1-triggered molecules. This avoids circularity: the a
+priori model determines whether a reduced study is needed, but the reduced
+study is evaluated against an observed-informed monkey reference.
+
+```{r}
+#| label: topdown-reference-population
+
+mabs_for_design <- triggered_molecules
+
+mw_lookup <- read.csv(
+  file.path(data_dir, "mAb_data_clean.csv"),
+  stringsAsFactors = FALSE,
+  check.names = FALSE
+) %>%
+  transmute(Drug = Molecule, MW = as.numeric(`Molecular.Weight`)) %>%
+  filter(Drug %in% mabs_for_design, is.finite(MW), MW > 0) %>%
+  group_by(Drug) %>%
+  summarise(MW = median(MW), .groups = "drop")
+
+topdown_processed <- readRDS(
+  file.path(topdown_dir, "TopDownTMDD_Run1_Run3_processed_Monkey.rds")
+)
+
+final_parameters <- topdown_processed$fit_summary %>%
+  filter(Run == "Run3_CL_kint_fixed_Rtot", Molecule %in% mabs_for_design) %>%
+  transmute(
+    Drug = Molecule,
+    Rtot_nM,
+    kdeg_h,
+    kint_h,
+    Kss_nM,
+    CL_L_h_kg,
+    Vc_L_kg,
+    Q_L_h_kg,
+    Vp_L_kg
+  ) %>%
+  left_join(mw_lookup, by = "Drug") %>%
+  relocate(MW, .after = Drug)
+
+required_parameter_columns <- c(
+  "Drug", "MW", "Rtot_nM", "kdeg_h", "kint_h", "Kss_nM",
+  "CL_L_h_kg", "Vc_L_kg", "Q_L_h_kg", "Vp_L_kg"
+)
+missing_parameter_columns <- setdiff(required_parameter_columns, names(final_parameters))
+if (length(missing_parameter_columns) > 0L) {
+  stop("Missing top-down parameters: ", paste(missing_parameter_columns, collapse = ", "))
+}
+stopifnot(
+  setequal(final_parameters$Drug, mabs_for_design),
+  all(is.finite(unlist(final_parameters[required_parameter_columns[-1]]))),
+  all(unlist(final_parameters[required_parameter_columns[-1]]) > 0)
+)
+
+topdown_parameter_names <- c(
+  "Rtot_nM", "kdeg_h", "kint_h", "Kss_nM",
+  "CL_L_h_kg", "Vc_L_kg", "Q_L_h_kg", "Vp_L_kg"
+)
+
+parameter_draws <- map_dfr(mabs_for_design, function(drug) {
+  medians <- final_parameters %>% filter(Drug == drug)
+  quantile_matrix <- random_quantiles(N_VIRTUAL, length(topdown_parameter_names))
+  draws <- map2_dfc(
+    seq_along(topdown_parameter_names),
+    topdown_parameter_names,
+    ~ make_lognormal(
+      quantile_matrix[, .x],
+      typical = medians[[.y]],
+      cv = PARAMETER_CV
+    )
+  )
+  names(draws) <- topdown_parameter_names
+
+  tibble(
+    Drug = drug,
+    MW = medians$MW,
+    IndividualId = seq_len(N_VIRTUAL)
+  ) %>%
+    bind_cols(draws)
+})
+
+write.csv(
+  parameter_draws,
+  file.path(table_dir, "Gate2_topdown_reference_population_parameters.csv"),
+  row.names = FALSE
+)
+
+parameter_draws %>%
+  pivot_longer(all_of(topdown_parameter_names),
+               names_to = "Parameter", values_to = "Value") %>%
+  group_by(Drug, Parameter) %>%
+  summarise(
+    Median = median(Value),
+    CV_percent = 100 * sd(Value) / mean(Value),
+    .groups = "drop"
+  ) %>%
+  kable(
+    digits = 4,
+    caption = "Top-down reference population parameter distributions."
+  ) %>%
+  kable_styling(bootstrap_options = c("striped", "condensed"),
+                full_width = FALSE)
+```
+
+## Simulate sparse top-down monkey PK
+
+```{r}
+#| label: simulate-sparse-topdown-pk
+
+qss_rxode_model <- rxode2::rxode({
+  Ltot <- centr / vc
+  Cp <- peri / vp
+  free_drug <- 0.5 * ((Ltot - total_target - kss) +
+    sqrt((Ltot - total_target - kss)^2 + 4 * kss * Ltot + 1e-12))
+  complex <- Ltot - free_drug
+  free_target <- total_target - complex
+
+  d/dt(centr) = -cl * free_drug - q * free_drug + q * Cp -
+    kint * complex * vc
+  d/dt(peri) = q * free_drug - q * Cp
+  d/dt(total_target) = ksyn - kdeg * free_target - kint * complex
+})
+
+simulate_topdown_profile <- function(parameter_row, dose_mgkg, times_h) {
+  theta <- c(
+    cl = parameter_row$CL_L_h_kg,
+    vc = parameter_row$Vc_L_kg,
+    q = parameter_row$Q_L_h_kg,
+    vp = parameter_row$Vp_L_kg,
+    r0 = parameter_row$Rtot_nM,
+    kdeg = parameter_row$kdeg_h,
+    kint = parameter_row$kint_h,
+    kss = parameter_row$Kss_nM,
+    ksyn = parameter_row$Rtot_nM * parameter_row$kdeg_h
+  )
+
+  event_table <- data.frame(
+    id = parameter_row$IndividualId,
+    time = c(0, times_h),
+    amt = c(
+      dose_mgkg_to_nmolkg(dose_mgkg, parameter_row$MW),
+      rep(NA_real_, length(times_h))
+    ),
+    evid = c(1, rep(0, length(times_h))),
+    cmt = "centr"
+  )
+
+  sol <- rxode2::rxSolve(
+    qss_rxode_model,
+    params = theta,
+    events = event_table,
+    inits = c(centr = 0, peri = 0, total_target = theta[["r0"]]),
+    rtol = 1e-6,
+    atol = 1e-9,
+    hmin = 1e-12,
+    maxsteps = 100000,
+    returnType = "data.frame"
+  ) %>%
+    as_tibble()
+
+  if ("evid" %in% names(sol)) {
+    sol <- sol %>% filter(evid == 0 | is.na(evid))
+  }
+
+  sol %>%
+    transmute(
+      Scenario_name = paste(
+        parameter_row$Drug, "Monkey", paste0("Dose", dose_mgkg), sep = "_"
+      ),
+      Drug = parameter_row$Drug,
+      IndividualId = as.character(parameter_row$IndividualId),
+      Dose_mgkg = dose_mgkg,
+      Time_h = as.numeric(time),
+      Time_day = Time_h / 24,
+      Concentration_ug_mL = conc_nm_to_ug_ml(
+        pmax(as.numeric(Ltot), 0),
+        parameter_row$MW
+      )
+    )
+}
+
+topdown_sparse_profiles <- map_dfr(STUDY_DOSES, function(dose_mgkg) {
+  map_dfr(
+    seq_len(nrow(parameter_draws)),
+    ~ simulate_topdown_profile(parameter_draws[.x, ], dose_mgkg, SPARSE_TIME_H)
+  )
+}) %>%
+  group_by(Scenario_name, Drug, IndividualId, Dose_mgkg, Time_h, Time_day) %>%
+  summarise(
+    Concentration_ug_mL = mean(Concentration_ug_mL, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+topdown_sparse_auc <- topdown_sparse_profiles %>%
+  group_by(Scenario_name, Drug, IndividualId, Dose_mgkg) %>%
+  summarise(
+    Sparse_AUC_ug_h_mL = linup_logdown_auc(
+      c(0, Time_h),
+      c(first(Concentration_ug_mL), Concentration_ug_mL)
+    ),
+    .groups = "drop"
+  )
+
+stopifnot(
+  nrow(topdown_sparse_auc) ==
+    length(mabs_for_design) * length(STUDY_DOSES) * N_VIRTUAL,
+  all(is.finite(topdown_sparse_auc$Sparse_AUC_ug_h_mL)),
+  all(topdown_sparse_auc$Sparse_AUC_ug_h_mL > 0)
+)
+
+write.csv(
+  topdown_sparse_profiles,
+  file.path(table_dir, "Gate2_topdown_sparse_profiles.csv"),
+  row.names = FALSE
+)
+write.csv(
+  topdown_sparse_auc,
+  file.path(table_dir, "Gate2_topdown_sparse_AUC.csv"),
+  row.names = FALSE
+)
+
+profile_summary <- topdown_sparse_profiles %>%
+  group_by(Drug, Dose_mgkg, Time_day) %>%
+  summarise(
+    Median_concentration_ug_mL = median(Concentration_ug_mL),
+    PI95_lower_ug_mL = quantile(Concentration_ug_mL, 0.025),
+    PI95_upper_ug_mL = quantile(Concentration_ug_mL, 0.975),
+    .groups = "drop"
+  ) %>%
+  mutate(Dose_label = factor(
+    paste0(Dose_mgkg, " mg/kg"),
+    levels = paste0(STUDY_DOSES, " mg/kg")
+  ))
+
+profile_plot <- ggplot(
+  profile_summary,
+  aes(x = Time_day, y = pmax(Median_concentration_ug_mL, 1e-8))
+) +
+  geom_ribbon(
+    aes(
+      ymin = pmax(PI95_lower_ug_mL, 1e-8),
+      ymax = pmax(PI95_upper_ug_mL, 1e-8)
+    ),
+    fill = "#4C78A8",
+    alpha = 0.20
+  ) +
+  geom_line(color = "#4C78A8", linewidth = 1.0) +
+  facet_grid(Drug ~ Dose_label, scales = "free_y") +
+  scale_y_log10(labels = scales::label_number()) +
+  scale_x_continuous(breaks = c(0, 7, 14, 21, 28), limits = c(0, 28)) +
+  labs(
+    x = "Time after dose (days)",
+    y = "Plasma concentration (ug/mL)",
+    title = "Top-down reference sparse monkey PK profiles",
+    subtitle = "Triggered molecules only; line shows median and ribbon shows 95% interval"
+  ) +
+  STUDY_THEME
+
+ggsave(
+  file.path(figure_dir, "Gate2_topdown_sparse_profiles_triggered_molecules.png"),
+  profile_plot,
+  width = 9,
+  height = 10,
+  dpi = 300
+)
+
+profile_plot
+```
+
+## Reduced sparse-study adequacy
+
+For each molecule, dose, and sample size, reduced studies are simulated by
+resampling `n` animals from the top-down reference population and calculating
+the study geometric mean sparse AUC. The reference is the geometric mean sparse
+AUC from the full top-down virtual population. A simulated reduced study is
+successful if the study geometric mean is within 2-fold of the full-population
+reference.
+
+```{r}
+#| label: reduced-study-adequacy
+
+reference_auc_summary <- topdown_sparse_auc %>%
+  group_by(Drug, Dose_mgkg) %>%
+  summarise(
+    Reference_AUC_mean_ug_h_mL = mean(Sparse_AUC_ug_h_mL),
+    Reference_AUC_median_ug_h_mL = median(Sparse_AUC_ug_h_mL),
+    Reference_AUC_geomean_ug_h_mL = geometric_mean(Sparse_AUC_ug_h_mL),
+    Reference_AUC_CV_percent =
+      100 * sd(Sparse_AUC_ug_h_mL) / mean(Sparse_AUC_ug_h_mL),
+    .groups = "drop"
+  )
+
+simulate_single_dose_reduced_study <- function(auc_values, n,
+                                               n_sim = N_SIM,
+                                               fold = FOLD_ACCEPTANCE) {
+  reference <- geometric_mean(auc_values)
+  tibble(Replicate = seq_len(n_sim)) %>%
+    mutate(
+      Study_AUC_geomean_ug_h_mL = map_dbl(
+        Replicate,
+        ~ geometric_mean(sample(auc_values, n, replace = TRUE))
+      ),
+      Fold_error = Study_AUC_geomean_ug_h_mL / reference,
+      Success_within_2fold =
+        Fold_error >= 1 / fold & Fold_error <= fold
+    )
+}
+
+single_dose_reduced_study_replicates <- crossing(
+  topdown_sparse_auc %>% distinct(Drug, Dose_mgkg),
+  N_per_group = N_PER_GROUP
+) %>%
+  mutate(
+    Replicates = pmap(
+      list(Drug, Dose_mgkg, N_per_group),
+      ~ {
+        auc_values <- topdown_sparse_auc %>%
+          filter(Drug == ..1, Dose_mgkg == ..2) %>%
+          pull(Sparse_AUC_ug_h_mL)
+        simulate_single_dose_reduced_study(auc_values, ..3)
+      }
+    )
+  ) %>%
+  unnest(Replicates)
+
+single_dose_reduced_study_summary <-
+  single_dose_reduced_study_replicates %>%
+  group_by(Drug, Dose_mgkg, N_per_group) %>%
+  summarise(
+    Probability_within_2fold = mean(Success_within_2fold),
+    Median_fold_error = median(Fold_error),
+    Fold_error_5th_percentile = quantile(Fold_error, 0.05),
+    Fold_error_95th_percentile = quantile(Fold_error, 0.95),
+    .groups = "drop"
+  ) %>%
+  left_join(reference_auc_summary, by = c("Drug", "Dose_mgkg"))
+
+write.csv(
+  reference_auc_summary,
+  file.path(table_dir, "Gate2_reference_AUC_CV_triggered_molecules.csv"),
+  row.names = FALSE
+)
+write.csv(
+  single_dose_reduced_study_summary,
+  file.path(table_dir, "Gate2_single_dose_reduced_study_success.csv"),
+  row.names = FALSE
+)
+
+single_dose_reduced_study_summary %>%
+  kable(
+    digits = 3,
+    caption = paste0(
+      "Reduced sparse-study adequacy by dose. Success is study geometric mean ",
+      "AUC within ", FOLD_ACCEPTANCE,
+      "-fold of the full top-down sparse-population geometric mean AUC."
+    )
+  ) %>%
+  kable_styling(bootstrap_options = c("striped", "condensed"),
+                full_width = FALSE)
+
+single_dose_plot <- ggplot(
+  single_dose_reduced_study_summary,
+  aes(x = N_per_group, y = Probability_within_2fold,
+      color = factor(Dose_mgkg), group = Dose_mgkg)
+) +
+  geom_hline(yintercept = 0.8, linetype = 2, color = "grey35") +
+  geom_line(linewidth = 1.1) +
+  geom_point(size = 2.8) +
+  facet_wrap(~ Drug, ncol = 2) +
+  scale_y_continuous(limits = c(0, 1), labels = scales::percent) +
+  scale_x_continuous(breaks = N_PER_GROUP) +
+  scale_color_viridis_d(option = "D", direction = -1, end = 0.85) +
+  labs(
+    x = "Animals per dose group",
+    y = "Probability within 2-fold",
+    color = "Dose (mg/kg)",
+    title = "Reduced sparse-study adequacy by dose",
+    subtitle = "Reference is the full top-down sparse-population geometric mean AUC"
+  ) +
+  STUDY_THEME
+
+ggsave(
+  file.path(figure_dir, "Gate2_single_dose_reduced_study_success.png"),
+  single_dose_plot,
+  width = 10,
+  height = 7,
+  dpi = 300
+)
+
+single_dose_plot
+```
+
+## Two- and three-dose reduced study designs
+
+The dose-design analysis is stricter than the single-dose analysis. A simulated
+design replicate is successful only if every selected dose group is within
+2-fold of its corresponding full-population top-down sparse AUC reference.
+
+```{r}
+#| label: dose-design-adequacy
+
+simulate_design_replicate <- function(drug, doses, n_by_dose,
+                                      fold = FOLD_ACCEPTANCE) {
+  dose_success <- logical(length(doses))
+
+  for (i in seq_along(doses)) {
+    auc_values <- topdown_sparse_auc %>%
+      filter(Drug == drug, Dose_mgkg == doses[i]) %>%
+      pull(Sparse_AUC_ug_h_mL)
+    reference <- geometric_mean(auc_values)
+    study_gmean <- geometric_mean(sample(auc_values, n_by_dose[i], replace = TRUE))
+    dose_success[i] <- within_fold(study_gmean, reference, fold)
+  }
+
+  all(dose_success)
+}
+
+simulate_design_success <- function(drug, doses, n_by_dose,
+                                    n_sim = N_SIM) {
+  mean(replicate(
+    n_sim,
+    simulate_design_replicate(drug, doses, n_by_dose)
+  ))
+}
+
+design_success <- crossing(
+  Drug = mabs_for_design,
+  Design = names(DESIGN_DOSES),
+  N_per_group = N_PER_GROUP
+) %>%
+  mutate(
+    Number_of_dose_groups = lengths(DESIGN_DOSES[Design]),
+    Total_animals = Number_of_dose_groups * N_per_group,
+    Probability_within_2fold = pmap_dbl(
+      list(Drug, Design, N_per_group),
+      ~ {
+        doses <- DESIGN_DOSES[[..2]]
+        simulate_design_success(..1, doses, rep(..3, length(doses)))
+      }
+    ),
+    Probability_per_animal = Probability_within_2fold / Total_animals
+  )
+
+write.csv(
+  design_success,
+  file.path(table_dir, "Gate2_two_vs_three_dose_design_success.csv"),
+  row.names = FALSE
+)
+
+design_success %>%
+  kable(
+    digits = 3,
+    caption = paste0(
+      "Two- versus three-dose reduced sparse-study designs. Success requires ",
+      "all selected dose groups to estimate top-down sparse AUC within ",
+      FOLD_ACCEPTANCE, "-fold."
+    )
+  ) %>%
+  kable_styling(bootstrap_options = c("striped", "condensed"),
+                full_width = FALSE)
+
+design_success_plot <- ggplot(
+  design_success,
+  aes(x = N_per_group, y = Probability_within_2fold,
+      color = Design, group = Design)
+) +
+  geom_hline(yintercept = 0.8, linetype = 2, color = "grey35") +
+  geom_line(linewidth = 1.2) +
+  geom_point(size = 3) +
+  facet_wrap(~ Drug, ncol = 2) +
+  scale_y_continuous(limits = c(0, 1), labels = scales::percent) +
+  scale_x_continuous(breaks = N_PER_GROUP) +
+  scale_color_viridis_d(option = "D", direction = -1, end = 0.85) +
+  labs(
+    x = "Animals per dose group",
+    y = "Probability within 2-fold",
+    color = NULL,
+    title = "Reduced sparse-study adequacy by dose-group design",
+    subtitle = "Design success requires all selected dose groups to meet the 2-fold AUC criterion"
+  ) +
+  STUDY_THEME
+
+ggsave(
+  file.path(figure_dir, "Gate2_two_vs_three_dose_design_success.png"),
+  design_success_plot,
+  width = 10,
+  height = 7,
+  dpi = 300
+)
+
+design_success_plot
+```
+
+## Design-level fold-error visualization
+
+For manuscript presentation, the most direct visualization is the distribution
+of the design-level worst-case fold error. This uses the reduced design that is
+most aligned with the proposed animal-sparing workflow: two dose levels
+(`0.3` and `10` mg/kg) and 2-5 animals per dose group. Each replicate samples
+animals at each dose, compares the study geometric mean AUC with the full
+top-down population geometric mean AUC for that dose, and records the worst
+symmetrized fold error across the two dose groups.
+
+```{r}
+#| label: design-fold-error-visualization
+
+simulate_design_fold_error_replicates <- function(drug,
+                                                  doses = c(0.3, 10),
+                                                  n_per_group = 2L,
+                                                  n_sim = N_SIM) {
+  map_dfr(seq_len(n_sim), function(replicate_id) {
+    dose_results <- map_dfr(doses, function(dose) {
+      auc_values <- topdown_sparse_auc %>%
+        filter(Drug == drug, Dose_mgkg == dose) %>%
+        pull(Sparse_AUC_ug_h_mL)
+      reference <- geometric_mean(auc_values)
+      study_gmean <- geometric_mean(
+        sample(auc_values, n_per_group, replace = TRUE)
+      )
+      ratio <- study_gmean / reference
+      tibble(
+        Dose_mgkg = dose,
+        Reference_AUC_geomean_ug_h_mL = reference,
+        Study_AUC_geomean_ug_h_mL = study_gmean,
+        Ratio_to_reference = ratio,
+        Symmetric_fold_error = pmax(ratio, 1 / ratio)
+      )
+    })
+
+    tibble(
+      Drug = drug,
+      Replicate = replicate_id,
+      Design = "2 dose groups",
+      N_per_group = n_per_group,
+      Total_animals = length(doses) * n_per_group,
+      Max_symmetric_fold_error = max(dose_results$Symmetric_fold_error),
+      Success_within_2fold = Max_symmetric_fold_error <= FOLD_ACCEPTANCE
+    )
+  })
+}
+
+design_fold_error_replicates <- crossing(
+  Drug = mabs_for_design,
+  N_per_group = N_PER_GROUP
+) %>%
+  mutate(
+    Replicates = map2(Drug, N_per_group, simulate_design_fold_error_replicates)
+  ) %>%
+  select(-Drug, -N_per_group) %>%
+  unnest(Replicates) %>%
+  mutate(
+    N_per_group = factor(N_per_group, levels = N_PER_GROUP)
+  )
+
+sample_size_colors <- viridisLite::viridis(
+  length(N_PER_GROUP),
+  option = "D",
+  direction = -1,
+  begin = 0.12,
+  end = 0.82
+)
+
+design_fold_error_summary <- design_fold_error_replicates %>%
+  group_by(Drug, Design, N_per_group, Total_animals) %>%
+  summarise(
+    Probability_within_2fold = mean(Success_within_2fold),
+    Median_max_symmetric_fold_error = median(Max_symmetric_fold_error),
+    Fold_error_5th_percentile = quantile(Max_symmetric_fold_error, 0.05),
+    Fold_error_95th_percentile = quantile(Max_symmetric_fold_error, 0.95),
+    .groups = "drop"
+  )
+
+write.csv(
+  design_fold_error_replicates,
+  file.path(table_dir, "Gate2_design_fold_error_replicates_2dose_by_n.csv"),
+  row.names = FALSE
+)
+write.csv(
+  design_fold_error_summary,
+  file.path(table_dir, "Gate2_design_fold_error_summary_2dose_by_n.csv"),
+  row.names = FALSE
+)
+
+design_fold_error_plot <- ggplot(
+  design_fold_error_replicates,
+  aes(
+    x = Max_symmetric_fold_error,
+    y = fct_rev(factor(Drug)),
+    fill = N_per_group,
+    color = N_per_group
+  )
+) +
+  geom_vline(xintercept = 1, color = "grey35", linewidth = 0.5) +
+  geom_vline(
+    xintercept = FOLD_ACCEPTANCE,
+    color = "#B22222",
+    linetype = 2,
+    linewidth = 0.8
+  ) +
+  geom_boxplot(
+    width = 0.62,
+    outlier.shape = NA,
+    alpha = 0.55,
+    linewidth = 0.45,
+    position = position_dodge2(width = 0.72, preserve = "single")
+  ) +
+  scale_x_continuous(
+    limits = c(1, FOLD_ACCEPTANCE),
+    breaks = c(1, 1.25, 1.5, 1.75, 2),
+    labels = scales::label_number(accuracy = 0.01)
+  ) +
+  scale_fill_manual(values = sample_size_colors) +
+  scale_color_manual(values = sample_size_colors) +
+  labs(
+    x = "Geometric fold error across dose groups",
+    y = NULL,
+    fill = "Animals per dose",
+    color = "Animals per dose"
+  ) +
+  STUDY_THEME +
+  theme(
+    legend.position = "bottom",
+    plot.title = element_text(size = 17, face = "bold"),
+    plot.subtitle = element_text(size = 13),
+    axis.text.y = element_text(size = 14, face = "bold"),
+    axis.text.x = element_text(size = 12),
+    plot.caption = element_text(size = 10, hjust = 0),
+    plot.margin = margin(10, 18, 10, 10)
+  )
+
+ggsave(
+  file.path(figure_dir, "Gate2_design_fold_error_2dose_by_n_manuscript.png"),
+  design_fold_error_plot,
+  width = 10.5,
+  height = 5.8,
+  dpi = 450
+)
+
+design_fold_error_plot
+```
+
+## Manuscript-ready interpretation notes
+
+```{r}
+#| label: manuscript-notes
+
+decision_table <- gate1_summary %>%
+  mutate(
+    Decision = if_else(
+      Trigger_reduced_PK,
+      "A priori AUC outside 2-fold for at least one dose: evaluate reduced sparse monkey PK study.",
+      "A priori monkey AUC within 2-fold across available doses: reduced PK study may be confirmatory or unnecessary for PK characterization."
+    )
+  ) %>%
+  left_join(
+    design_success %>%
+      group_by(Drug, Design) %>%
+      filter(N_per_group == 3) %>%
+      summarise(
+        Probability_within_2fold_at_n3 = first(Probability_within_2fold),
+        Total_animals_at_n3 = first(Total_animals),
+        .groups = "drop"
+      ) %>%
+      pivot_wider(
+        names_from = Design,
+        values_from = c(Probability_within_2fold_at_n3, Total_animals_at_n3)
+      ),
+    by = "Drug"
+  )
+
+write.csv(
+  decision_table,
+  file.path(table_dir, "Two_gate_decision_summary.csv"),
+  row.names = FALSE
+)
+
+decision_table %>%
+  kable(
+    digits = 3,
+    caption = "Two-gate decision summary for manuscript interpretation."
+  ) %>%
+  kable_styling(bootstrap_options = c("striped", "condensed"),
+                full_width = FALSE)
+```
+
+Suggested manuscript text:
+
+> We used a two-gate decision framework. First, a priori PBPK predictions were
+> screened against observed monkey exposure. Molecules with at least one a
+> priori AUC fold-error outside the 2-fold interval were considered cases where
+> a reduced monkey PK study would be triggered. Second, for these triggered
+> molecules, the observed-informed top-down monkey model was used as the
+> retrospective reference for true monkey PK. Reduced sparse PK studies were
+> simulated by sampling small groups of animals from the top-down virtual
+> population and comparing the study geometric mean AUC with the full
+> top-down population geometric mean AUC. This design separates model bias from
+> sampling adequacy: failure of Gate 1 reflects limitations of the a priori
+> prediction, whereas Gate 2 evaluates whether a reduced sparse monkey study is
+> sufficient once in vivo PK characterization is needed.
+
+> In this framework, increasing sample size is not expected to correct
+> systematic a priori model bias. Instead, the reduced study simulation
+> quantifies whether a targeted sparse monkey PK study can recover the
+> observed-informed monkey exposure estimate with adequate precision, thereby
+> supporting decisions about whether reduced in vivo PK data are sufficient for
+> human trial initiation.
+
+```{r}
+#| label: session-info
+
+sessionInfo()
+```
