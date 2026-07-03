@@ -9,7 +9,10 @@ set.seed(20260628)
 FOLD_ACCEPTANCE <- 2
 N_SIM <- 1000L
 N_PER_GROUP <- 2:5
-DESIGN_DOSES <- c(0.3, 10)
+DESIGN_DOSES <- list(
+  `2 dose groups` = c(0.3, 10),
+  `3 dose groups` = c(0.3, 3, 10)
+)
 
 script_file <- sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)[1])
 script_dir <- if (!is.na(script_file) && nzchar(script_file)) {
@@ -35,16 +38,37 @@ topdown_sparse_auc <- read.csv(
   file.path(table_dir, "Gate2_topdown_sparse_AUC.csv"),
   stringsAsFactors = FALSE
 )
+topdown_rich_auc <- read.csv(
+  file.path(table_dir, "Gate2_topdown_rich_AUC.csv"),
+  stringsAsFactors = FALSE
+)
 
 mabs_for_design <- sort(unique(topdown_sparse_auc$Drug))
 
-simulate_design_fold_error_replicates <- function(drug, n_per_group) {
+reference_auc_summary <- topdown_rich_auc %>%
+  group_by(Drug, Dose_mgkg) %>%
+  summarise(
+    Reference_AUC_geomean_ug_h_mL = geometric_mean(Rich_AUC_ug_h_mL),
+    .groups = "drop"
+  )
+
+sparse_auc_lookup <- split(
+  topdown_sparse_auc$Sparse_AUC_ug_h_mL,
+  paste(topdown_sparse_auc$Drug, topdown_sparse_auc$Dose_mgkg, sep = "|")
+)
+reference_auc_lookup <- setNames(
+  reference_auc_summary$Reference_AUC_geomean_ug_h_mL,
+  paste(reference_auc_summary$Drug, reference_auc_summary$Dose_mgkg, sep = "|")
+)
+
+simulate_design_fold_error_replicates <- function(drug, design, n_per_group) {
+  doses <- DESIGN_DOSES[[design]]
+
   map_dfr(seq_len(N_SIM), function(replicate_id) {
-    dose_results <- map_dfr(DESIGN_DOSES, function(dose) {
-      auc_values <- topdown_sparse_auc %>%
-        filter(Drug == drug, Dose_mgkg == dose) %>%
-        pull(Sparse_AUC_ug_h_mL)
-      reference <- geometric_mean(auc_values)
+    dose_results <- map_dfr(doses, function(dose) {
+      lookup_key <- paste(drug, dose, sep = "|")
+      auc_values <- sparse_auc_lookup[[lookup_key]]
+      reference <- reference_auc_lookup[[lookup_key]]
       study_gmean <- geometric_mean(
         sample(auc_values, n_per_group, replace = TRUE)
       )
@@ -61,9 +85,9 @@ simulate_design_fold_error_replicates <- function(drug, n_per_group) {
     tibble(
       Drug = drug,
       Replicate = replicate_id,
-      Design = "2 dose groups",
+      Design = design,
       N_per_group = n_per_group,
-      Total_animals = length(DESIGN_DOSES) * n_per_group,
+      Total_animals = length(doses) * n_per_group,
       Max_symmetric_fold_error = max(dose_results$Symmetric_fold_error),
       Success_within_2fold = Max_symmetric_fold_error <= FOLD_ACCEPTANCE
     )
@@ -72,14 +96,19 @@ simulate_design_fold_error_replicates <- function(drug, n_per_group) {
 
 design_fold_error_replicates <- crossing(
   Drug = mabs_for_design,
+  Design = names(DESIGN_DOSES),
   N_per_group = N_PER_GROUP
 ) %>%
   mutate(
-    Replicates = map2(Drug, N_per_group, simulate_design_fold_error_replicates)
+    Replicates = pmap(
+      list(Drug, Design, N_per_group),
+      simulate_design_fold_error_replicates
+    )
   ) %>%
-  select(-Drug, -N_per_group) %>%
+  select(-Drug, -Design, -N_per_group) %>%
   unnest(Replicates) %>%
   mutate(
+    Design = factor(Design, levels = names(DESIGN_DOSES)),
     N_per_group = factor(N_per_group, levels = N_PER_GROUP)
   )
 
@@ -103,12 +132,12 @@ design_fold_error_summary <- design_fold_error_replicates %>%
 
 write.csv(
   design_fold_error_replicates,
-  file.path(table_dir, "Gate2_design_fold_error_replicates_2dose_by_n.csv"),
+  file.path(table_dir, "Gate2_design_fold_error_replicates_two_vs_three_dose_by_n.csv"),
   row.names = FALSE
 )
 write.csv(
   design_fold_error_summary,
-  file.path(table_dir, "Gate2_design_fold_error_summary_2dose_by_n.csv"),
+  file.path(table_dir, "Gate2_design_fold_error_summary_two_vs_three_dose_by_n.csv"),
   row.names = FALSE
 )
 
@@ -159,6 +188,7 @@ design_fold_error_plot <- ggplot(
   ) +
   scale_fill_manual(values = sample_size_colors) +
   scale_color_manual(values = sample_size_colors) +
+  facet_wrap(vars(Design), nrow = 1) +
   labs(
     x = "Geometric fold error across dose groups",
     y = NULL,
@@ -177,9 +207,9 @@ design_fold_error_plot <- ggplot(
   )
 
 ggsave(
-  file.path(figure_dir, "Gate2_design_fold_error_2dose_by_n.png"),
+  file.path(figure_dir, "Gate2_design_fold_error_two_vs_three_dose_by_n.png"),
   design_fold_error_plot,
-  width = 10.5,
+  width = 13.5,
   height = 5.8,
   dpi = 450
 )

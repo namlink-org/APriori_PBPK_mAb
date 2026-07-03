@@ -65,6 +65,7 @@ DESIGN_DOSES <- list(
 SPARSE_TIME_H <- c(0.25, 1, 2, 4, 8, 1, 2, 6, 10, 14, 21, 28) *
   c(rep(1, 5), rep(24, 7))
 SPARSE_TIME_H <- sort(unique(SPARSE_TIME_H))
+RICH_TIME_H <- c(0.25, 0.5, seq(1, AUC_END_H, by = 1))
 
 study_dir <- if (basename(normalizePath(".", winslash = "/", mustWork = TRUE)) ==
                  "05_StudySimulations") {
@@ -331,10 +332,10 @@ parameter_draws %>%
                 full_width = FALSE)
 ```
 
-## Simulate sparse top-down monkey PK
+## Simulate top-down monkey PK
 
 ```{r}
-#| label: simulate-sparse-topdown-pk
+#| label: simulate-topdown-pk
 
 qss_rxode_model <- rxode2::rxode({
   Ltot <- centr / vc
@@ -430,11 +431,37 @@ topdown_sparse_auc <- topdown_sparse_profiles %>%
     .groups = "drop"
   )
 
+topdown_rich_profiles <- map_dfr(STUDY_DOSES, function(dose_mgkg) {
+  map_dfr(
+    seq_len(nrow(parameter_draws)),
+    ~ simulate_topdown_profile(parameter_draws[.x, ], dose_mgkg, RICH_TIME_H)
+  )
+}) %>%
+  group_by(Scenario_name, Drug, IndividualId, Dose_mgkg, Time_h, Time_day) %>%
+  summarise(
+    Concentration_ug_mL = mean(Concentration_ug_mL, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+topdown_rich_auc <- topdown_rich_profiles %>%
+  group_by(Scenario_name, Drug, IndividualId, Dose_mgkg) %>%
+  summarise(
+    Rich_AUC_ug_h_mL = linup_logdown_auc(
+      c(0, Time_h),
+      c(first(Concentration_ug_mL), Concentration_ug_mL)
+    ),
+    .groups = "drop"
+  )
+
 stopifnot(
   nrow(topdown_sparse_auc) ==
     length(mabs_for_design) * length(STUDY_DOSES) * N_VIRTUAL,
   all(is.finite(topdown_sparse_auc$Sparse_AUC_ug_h_mL)),
-  all(topdown_sparse_auc$Sparse_AUC_ug_h_mL > 0)
+  all(topdown_sparse_auc$Sparse_AUC_ug_h_mL > 0),
+  nrow(topdown_rich_auc) ==
+    length(mabs_for_design) * length(STUDY_DOSES) * N_VIRTUAL,
+  all(is.finite(topdown_rich_auc$Rich_AUC_ug_h_mL)),
+  all(topdown_rich_auc$Rich_AUC_ug_h_mL > 0)
 )
 
 write.csv(
@@ -445,6 +472,16 @@ write.csv(
 write.csv(
   topdown_sparse_auc,
   file.path(table_dir, "Gate2_topdown_sparse_AUC.csv"),
+  row.names = FALSE
+)
+write.csv(
+  topdown_rich_profiles,
+  file.path(table_dir, "Gate2_topdown_rich_profiles.csv"),
+  row.names = FALSE
+)
+write.csv(
+  topdown_rich_auc,
+  file.path(table_dir, "Gate2_topdown_rich_AUC.csv"),
   row.names = FALSE
 )
 
@@ -500,29 +537,38 @@ profile_plot
 
 For each molecule, dose, and sample size, reduced studies are simulated by
 resampling `n` animals from the top-down reference population and calculating
-the study geometric mean sparse AUC. The reference is the geometric mean sparse
-AUC from the full top-down virtual population. A simulated reduced study is
-successful if the study geometric mean is within 2-fold of the full-population
-reference.
+the study geometric mean sparse AUC. The reference is the geometric mean rich
+AUC from the full top-down virtual population (`n = 100`) across the three
+candidate dose levels. A simulated reduced study is successful if the sparse
+study geometric mean is within 2-fold of the full-population rich reference.
 
 ```{r}
 #| label: reduced-study-adequacy
 
-reference_auc_summary <- topdown_sparse_auc %>%
+reference_auc_summary <- topdown_rich_auc %>%
   group_by(Drug, Dose_mgkg) %>%
   summarise(
-    Reference_AUC_mean_ug_h_mL = mean(Sparse_AUC_ug_h_mL),
-    Reference_AUC_median_ug_h_mL = median(Sparse_AUC_ug_h_mL),
-    Reference_AUC_geomean_ug_h_mL = geometric_mean(Sparse_AUC_ug_h_mL),
+    Reference_AUC_mean_ug_h_mL = mean(Rich_AUC_ug_h_mL),
+    Reference_AUC_median_ug_h_mL = median(Rich_AUC_ug_h_mL),
+    Reference_AUC_geomean_ug_h_mL = geometric_mean(Rich_AUC_ug_h_mL),
     Reference_AUC_CV_percent =
-      100 * sd(Sparse_AUC_ug_h_mL) / mean(Sparse_AUC_ug_h_mL),
+      100 * sd(Rich_AUC_ug_h_mL) / mean(Rich_AUC_ug_h_mL),
     .groups = "drop"
   )
 
+sparse_auc_lookup <- split(
+  topdown_sparse_auc$Sparse_AUC_ug_h_mL,
+  paste(topdown_sparse_auc$Drug, topdown_sparse_auc$Dose_mgkg, sep = "|")
+)
+reference_auc_lookup <- setNames(
+  reference_auc_summary$Reference_AUC_geomean_ug_h_mL,
+  paste(reference_auc_summary$Drug, reference_auc_summary$Dose_mgkg, sep = "|")
+)
+
 simulate_single_dose_reduced_study <- function(auc_values, n,
+                                               reference,
                                                n_sim = N_SIM,
                                                fold = FOLD_ACCEPTANCE) {
-  reference <- geometric_mean(auc_values)
   tibble(Replicate = seq_len(n_sim)) %>%
     mutate(
       Study_AUC_geomean_ug_h_mL = map_dbl(
@@ -543,10 +589,10 @@ single_dose_reduced_study_replicates <- crossing(
     Replicates = pmap(
       list(Drug, Dose_mgkg, N_per_group),
       ~ {
-        auc_values <- topdown_sparse_auc %>%
-          filter(Drug == ..1, Dose_mgkg == ..2) %>%
-          pull(Sparse_AUC_ug_h_mL)
-        simulate_single_dose_reduced_study(auc_values, ..3)
+        lookup_key <- paste(..1, ..2, sep = "|")
+        auc_values <- sparse_auc_lookup[[lookup_key]]
+        reference <- reference_auc_lookup[[lookup_key]]
+        simulate_single_dose_reduced_study(auc_values, ..3, reference)
       }
     )
   ) %>%
@@ -581,7 +627,7 @@ single_dose_reduced_study_summary %>%
     caption = paste0(
       "Reduced sparse-study adequacy by dose. Success is study geometric mean ",
       "AUC within ", FOLD_ACCEPTANCE,
-      "-fold of the full top-down sparse-population geometric mean AUC."
+      "-fold of the full top-down rich-population geometric mean AUC."
     )
   ) %>%
   kable_styling(bootstrap_options = c("striped", "condensed"),
@@ -604,7 +650,7 @@ single_dose_plot <- ggplot(
     y = "Probability within 2-fold",
     color = "Dose (mg/kg)",
     title = "Reduced sparse-study adequacy by dose",
-    subtitle = "Reference is the full top-down sparse-population geometric mean AUC"
+    subtitle = "Reference is the full top-down rich-population geometric mean AUC"
   ) +
   STUDY_THEME
 
@@ -623,7 +669,7 @@ single_dose_plot
 
 The dose-design analysis is stricter than the single-dose analysis. A simulated
 design replicate is successful only if every selected dose group is within
-2-fold of its corresponding full-population top-down sparse AUC reference.
+2-fold of its corresponding full-population top-down rich AUC reference.
 
 ```{r}
 #| label: dose-design-adequacy
@@ -633,10 +679,9 @@ simulate_design_replicate <- function(drug, doses, n_by_dose,
   dose_success <- logical(length(doses))
 
   for (i in seq_along(doses)) {
-    auc_values <- topdown_sparse_auc %>%
-      filter(Drug == drug, Dose_mgkg == doses[i]) %>%
-      pull(Sparse_AUC_ug_h_mL)
-    reference <- geometric_mean(auc_values)
+    lookup_key <- paste(drug, doses[i], sep = "|")
+    auc_values <- sparse_auc_lookup[[lookup_key]]
+    reference <- reference_auc_lookup[[lookup_key]]
     study_gmean <- geometric_mean(sample(auc_values, n_by_dose[i], replace = TRUE))
     dose_success[i] <- within_fold(study_gmean, reference, fold)
   }
@@ -681,7 +726,7 @@ design_success %>%
     digits = 3,
     caption = paste0(
       "Two- versus three-dose reduced sparse-study designs. Success requires ",
-      "all selected dose groups to estimate top-down sparse AUC within ",
+      "all selected dose groups to estimate top-down rich AUC within ",
       FOLD_ACCEPTANCE, "-fold."
     )
   ) %>%
@@ -723,26 +768,26 @@ design_success_plot
 ## Design-level fold-error visualization
 
 For manuscript presentation, the most direct visualization is the distribution
-of the design-level worst-case fold error. This uses the reduced design that is
-most aligned with the proposed animal-sparing workflow: two dose levels
-(`0.3` and `10` mg/kg) and 2-5 animals per dose group. Each replicate samples
-animals at each dose, compares the study geometric mean AUC with the full
-top-down population geometric mean AUC for that dose, and records the worst
-symmetrized fold error across the two dose groups.
+of the design-level worst-case fold error. This compares the two- and
+three-dose reduced designs with 2-5 animals per dose group. Each replicate
+samples animals at each dose, compares the study geometric mean AUC with the
+full top-down rich-population geometric mean AUC for that dose, and records
+the worst symmetrized fold error across the selected dose groups.
 
 ```{r}
 #| label: design-fold-error-visualization
 
 simulate_design_fold_error_replicates <- function(drug,
-                                                  doses = c(0.3, 10),
+                                                  design,
                                                   n_per_group = 2L,
                                                   n_sim = N_SIM) {
+  doses <- DESIGN_DOSES[[design]]
+
   map_dfr(seq_len(n_sim), function(replicate_id) {
     dose_results <- map_dfr(doses, function(dose) {
-      auc_values <- topdown_sparse_auc %>%
-        filter(Drug == drug, Dose_mgkg == dose) %>%
-        pull(Sparse_AUC_ug_h_mL)
-      reference <- geometric_mean(auc_values)
+      lookup_key <- paste(drug, dose, sep = "|")
+      auc_values <- sparse_auc_lookup[[lookup_key]]
+      reference <- reference_auc_lookup[[lookup_key]]
       study_gmean <- geometric_mean(
         sample(auc_values, n_per_group, replace = TRUE)
       )
@@ -759,7 +804,7 @@ simulate_design_fold_error_replicates <- function(drug,
     tibble(
       Drug = drug,
       Replicate = replicate_id,
-      Design = "2 dose groups",
+      Design = design,
       N_per_group = n_per_group,
       Total_animals = length(doses) * n_per_group,
       Max_symmetric_fold_error = max(dose_results$Symmetric_fold_error),
@@ -770,14 +815,19 @@ simulate_design_fold_error_replicates <- function(drug,
 
 design_fold_error_replicates <- crossing(
   Drug = mabs_for_design,
+  Design = names(DESIGN_DOSES),
   N_per_group = N_PER_GROUP
 ) %>%
   mutate(
-    Replicates = map2(Drug, N_per_group, simulate_design_fold_error_replicates)
+    Replicates = pmap(
+      list(Drug, Design, N_per_group),
+      simulate_design_fold_error_replicates
+    )
   ) %>%
-  select(-Drug, -N_per_group) %>%
+  select(-Drug, -Design, -N_per_group) %>%
   unnest(Replicates) %>%
   mutate(
+    Design = factor(Design, levels = names(DESIGN_DOSES)),
     N_per_group = factor(N_per_group, levels = N_PER_GROUP)
   )
 
@@ -801,12 +851,12 @@ design_fold_error_summary <- design_fold_error_replicates %>%
 
 write.csv(
   design_fold_error_replicates,
-  file.path(table_dir, "Gate2_design_fold_error_replicates_2dose_by_n.csv"),
+  file.path(table_dir, "Gate2_design_fold_error_replicates_two_vs_three_dose_by_n.csv"),
   row.names = FALSE
 )
 write.csv(
   design_fold_error_summary,
-  file.path(table_dir, "Gate2_design_fold_error_summary_2dose_by_n.csv"),
+  file.path(table_dir, "Gate2_design_fold_error_summary_two_vs_three_dose_by_n.csv"),
   row.names = FALSE
 )
 
@@ -840,6 +890,7 @@ design_fold_error_plot <- ggplot(
   ) +
   scale_fill_manual(values = sample_size_colors) +
   scale_color_manual(values = sample_size_colors) +
+  facet_wrap(vars(Design), nrow = 1) +
   labs(
     x = "Geometric fold error across dose groups",
     y = NULL,
@@ -858,9 +909,9 @@ design_fold_error_plot <- ggplot(
   )
 
 ggsave(
-  file.path(figure_dir, "Gate2_design_fold_error_2dose_by_n_manuscript.png"),
+  file.path(figure_dir, "Gate2_design_fold_error_two_vs_three_dose_by_n_manuscript.png"),
   design_fold_error_plot,
-  width = 10.5,
+  width = 13.5,
   height = 5.8,
   dpi = 450
 )
