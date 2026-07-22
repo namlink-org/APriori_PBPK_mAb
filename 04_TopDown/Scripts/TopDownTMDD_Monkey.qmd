@@ -30,6 +30,8 @@ figures_dir <- file.path(outdir, "Figures")
 dir.create(figures_dir, recursive = TRUE, showWarnings = FALSE)
 
 AUC_END_H <- 28 * 24
+PROFILE_TIMEPOINTS_H <- c(0, 0.25, 1, 2, 4, 6, 12, 24, 48, 96, 168, 336, 504)
+BW_MONKEY_KG <- 3.5
 FORCE_RERUN <- FALSE
 
 normalize_names <- function(x) {
@@ -143,6 +145,125 @@ trapz_auc <- function(time, conc, t_end = Inf) {
   sum(ifelse(use_log, dt * (c1 - c2) / log(c1 / c2), dt * (c1 + c2) / 2))
 }
 
+mean_or_na <- function(x) {
+  x <- x[is.finite(x)]
+  if (length(x) == 0) NA_real_ else mean(x)
+}
+
+best_terminal_lambda_z <- function(time_h, conc, min_points = 3L) {
+  terminal_data <- tibble(time_h = as.numeric(time_h), conc = as.numeric(conc)) %>%
+    filter(is.finite(time_h), is.finite(conc), conc > 0) %>%
+    group_by(time_h) %>%
+    summarise(conc = mean(conc), .groups = "drop") %>%
+    arrange(time_h)
+
+  if (nrow(terminal_data) < min_points) return(NA_real_)
+  tmax_index <- which.max(terminal_data$conc)[1]
+  post_cmax <- terminal_data %>% slice((tmax_index + 1L):n())
+  if (nrow(post_cmax) < min_points) post_cmax <- terminal_data %>% slice(tmax_index:n())
+  if (nrow(post_cmax) < min_points) return(NA_real_)
+
+  x <- post_cmax$time_h
+  y <- log(post_cmax$conc)
+  total_n <- length(x)
+  suffix_sum <- function(z) rev(cumsum(rev(z)))
+  sx <- suffix_sum(x)
+  sy <- suffix_sum(y)
+  sxx <- suffix_sum(x * x)
+  syy <- suffix_sum(y * y)
+  sxy <- suffix_sum(x * y)
+  terminal_n <- seq.int(min_points, total_n)
+  start_index <- total_n - terminal_n + 1L
+  s_xx <- sxx[start_index] - sx[start_index]^2 / terminal_n
+  s_yy <- syy[start_index] - sy[start_index]^2 / terminal_n
+  s_xy <- sxy[start_index] - sx[start_index] * sy[start_index] / terminal_n
+  slope <- s_xy / s_xx
+  r2 <- pmin(pmax((s_xy^2) / (s_xx * s_yy), 0), 1)
+  adj_r2 <- 1 - (1 - r2) * (terminal_n - 1) / (terminal_n - 2)
+
+  candidates <- tibble(slope, adj_r2, terminal_n) %>%
+    filter(is.finite(slope), slope < 0, is.finite(adj_r2)) %>%
+    arrange(desc(adj_r2), desc(terminal_n))
+
+  if (nrow(candidates) == 0) NA_real_ else -candidates$slope[1]
+}
+
+auc_inf_ug_h_ml <- function(time_h, conc, lambda_z) {
+  profile <- tibble(time_h = as.numeric(time_h), conc = as.numeric(conc)) %>%
+    filter(
+      is.finite(time_h), is.finite(conc),
+      time_h >= 0, time_h <= AUC_END_H, conc >= 0
+    ) %>%
+    group_by(time_h) %>%
+    summarise(conc = mean(conc), .groups = "drop") %>%
+    arrange(time_h)
+
+  if (nrow(profile) == 0 || !any(profile$conc > 0) || !is.finite(lambda_z)) {
+    return(NA_real_)
+  }
+  if (!any(profile$time_h == 0)) {
+    profile <- bind_rows(tibble(time_h = 0, conc = 0), profile) %>% arrange(time_h)
+  }
+
+  positive <- profile %>% filter(conc > 0)
+  last_index <- which.max(positive$time_h)
+  c_last <- positive$conc[last_index]
+  last_time <- positive$time_h[last_index]
+  through_last <- profile %>% filter(time_h <= last_time)
+  dt <- diff(through_last$time_h)
+  c1 <- through_last$conc[-nrow(through_last)]
+  c2 <- through_last$conc[-1]
+  declining <- c2 < c1 & c1 > 0 & c2 > 0
+  auc_last <- sum(ifelse(
+    declining,
+    dt * (c1 - c2) / log(c1 / c2),
+    dt * (c1 + c2) / 2
+  ))
+  auc_last + c_last / lambda_z
+}
+
+terminal_clearance_l_day <- function(dose_mg_kg, body_weight_kg, auc_inf) {
+  if (!is.finite(auc_inf) || auc_inf <= 0) return(NA_real_)
+  24 * dose_mg_kg * body_weight_kg / auc_inf
+}
+
+evaluate_profile_timepoints <- function(time_h, conc) {
+  profile <- tibble(time_h = as.numeric(time_h), conc = as.numeric(conc)) %>%
+    filter(is.finite(time_h), is.finite(conc), time_h >= 0, conc >= 0) %>%
+    group_by(time_h) %>%
+    summarise(conc = mean(conc), .groups = "drop") %>%
+    arrange(time_h)
+
+  if (nrow(profile) == 0) {
+    return(tibble(Eval_Time_h = PROFILE_TIMEPOINTS_H, Eval_Conc_ug_mL = NA_real_))
+  }
+  if (!any(profile$time_h == 0)) {
+    profile <- bind_rows(tibble(time_h = 0, conc = 0), profile) %>% arrange(time_h)
+  }
+
+  interpolate_one <- function(target_h) {
+    exact <- which(abs(profile$time_h - target_h) < 1e-10)
+    if (length(exact) > 0) return(profile$conc[exact[1]])
+    if (target_h < min(profile$time_h) || target_h > max(profile$time_h)) return(NA_real_)
+    lower <- max(which(profile$time_h < target_h))
+    upper <- min(which(profile$time_h > target_h))
+    fraction <- (target_h - profile$time_h[lower]) /
+      (profile$time_h[upper] - profile$time_h[lower])
+    c1 <- profile$conc[lower]
+    c2 <- profile$conc[upper]
+    if (c1 > 0 && c2 > 0) {
+      exp(log(c1) + fraction * (log(c2) - log(c1)))
+    } else {
+      c1 + fraction * (c2 - c1)
+    }
+  }
+
+  tibble(
+    Eval_Time_h = PROFILE_TIMEPOINTS_H,
+    Eval_Conc_ug_mL = map_dbl(PROFILE_TIMEPOINTS_H, interpolate_one)
+  )
+}
+
 fmt_fe <- function(x) {
   cell_spec(
     ifelse(is.na(x), "", formatC(x, format = "f", digits = 2)),
@@ -171,7 +292,7 @@ safe_ofv <- function(fit) {
 if (.Platform$OS.type == "windows" && identical(unname(Sys.which("make")), "")) {
   warning(
     "Rtools/make was not found on PATH. nlmixr2/rxode2 model compilation may fail; ",
-    "run nlmixr2::nlmixr2CheckInstall() if Run1 reports rxode2 compile errors.",
+    "run nlmixr2::nlmixr2CheckInstall() if Run4 reports rxode2 compile errors.",
     call. = FALSE
   )
 }
@@ -381,8 +502,7 @@ The QSS binding constant is fixed from the in vitro kinetic inputs:
 
 `Kss = (koff + kint) / kon`, where `kon = koff / KD`.
 
-Run 1 fixes `kdeg_target` to the parameter workbook value and estimates `Rtot`. Run 2 estimates both `Rtot` and `kdeg_target`. Run 3 fixes `Rtot` to the value provided in the input dataset and estimates `CL` and `kint`.
-Unless otherwise stated for a run, the structural PK terms are fixed to data-derived monkey profile starts so the top-down step does not try to solve a poorly identified joint PK/TMDD problem from median-only profiles.
+Runs 1-3 are retained below for reference but are not evaluated. Run 4 estimates the structural PK terms `CL`, `Vc`, `Q`, and `Vp`, together with the proportional and additive residual-error terms. All TMDD parameters are fixed per molecule to the parameter workbook values, including `Rtot` (the reference concentration), `kdeg_target`, and `kint`.
 
 ```{r}
 #| label: model-helpers
@@ -655,8 +775,11 @@ simulate_qss_profiles <- function(dat_mol, theta, run_name) {
   })
 }
 
-qss_objective <- function(log_par, dat_mol, par_mol, init_mol, run_name, estimate_kdeg = FALSE, estimate_cl = FALSE, estimate_kint = FALSE, fixed_rtot = FALSE) {
+qss_objective <- function(log_par, dat_mol, par_mol, init_mol, run_name, estimate_kdeg = FALSE, estimate_cl = FALSE, estimate_vc = FALSE, estimate_q = FALSE, estimate_vp = FALSE, estimate_kint = FALSE, fixed_rtot = FALSE) {
   cl <- if (estimate_cl) exp(log_par[["lcl"]]) else init_mol$CL_init_L_h_kg
+  vc <- if (estimate_vc) exp(log_par[["lvc"]]) else init_mol$Vc_init_L_kg
+  q <- if (estimate_q) exp(log_par[["lq"]]) else init_mol$Q_init_L_h_kg
+  vp <- if (estimate_vp) exp(log_par[["lvp"]]) else init_mol$Vp_init_L_kg
   r0 <- if (fixed_rtot) init_mol$Rtot_init_nM else exp(log_par[["lr0"]])
   kdeg <- if (estimate_kdeg) exp(log_par[["lkdeg"]]) else par_mol$kdeg_h
   kint <- if (estimate_kint) exp(log_par[["lkint"]]) else par_mol$kint_h
@@ -665,9 +788,9 @@ qss_objective <- function(log_par, dat_mol, par_mol, init_mol, run_name, estimat
 
   theta <- c(
     cl = cl,
-    vc = init_mol$Vc_init_L_kg,
-    q = init_mol$Q_init_L_h_kg,
-    vp = init_mol$Vp_init_L_kg,
+    vc = vc,
+    q = q,
+    vp = vp,
     r0 = r0,
     kdeg = kdeg,
     kint = kint,
@@ -686,7 +809,7 @@ qss_objective <- function(log_par, dat_mol, par_mol, init_mol, run_name, estimat
   sum(log(2 * pi * sd^2) + residual^2)
 }
 
-fit_qss_bobyqa <- function(dat_mol, par_mol, init_mol, run_name, estimate_kdeg = FALSE, estimate_cl = FALSE, estimate_kint = FALSE, fixed_rtot = FALSE) {
+fit_qss_bobyqa <- function(dat_mol, par_mol, init_mol, run_name, estimate_kdeg = FALSE, estimate_cl = FALSE, estimate_vc = FALSE, estimate_q = FALSE, estimate_vp = FALSE, estimate_kint = FALSE, fixed_rtot = FALSE) {
   start <- c()
   lower <- c()
   upper <- c()
@@ -695,6 +818,24 @@ fit_qss_bobyqa <- function(dat_mol, par_mol, init_mol, run_name, estimate_kdeg =
     start <- c(start, lcl = init_mol$lcl_init)
     lower <- c(lower, lcl = log(1e-4))
     upper <- c(upper, lcl = log(0.5))
+  }
+
+  if (estimate_vc) {
+    start <- c(start, lvc = init_mol$lvc_init)
+    lower <- c(lower, lvc = log(0.005))
+    upper <- c(upper, lvc = log(0.5))
+  }
+
+  if (estimate_q) {
+    start <- c(start, lq = init_mol$lq_init)
+    lower <- c(lower, lq = log(1e-5))
+    upper <- c(upper, lq = log(0.2))
+  }
+
+  if (estimate_vp) {
+    start <- c(start, lvp = init_mol$lvp_init)
+    lower <- c(lower, lvp = log(0.005))
+    upper <- c(upper, lvp = log(1.0))
   }
 
   if (!fixed_rtot) {
@@ -738,20 +879,26 @@ fit_qss_bobyqa <- function(dat_mol, par_mol, init_mol, run_name, estimate_kdeg =
     run_name = run_name,
     estimate_kdeg = estimate_kdeg,
     estimate_cl = estimate_cl,
+    estimate_vc = estimate_vc,
+    estimate_q = estimate_q,
+    estimate_vp = estimate_vp,
     estimate_kint = estimate_kint,
     fixed_rtot = fixed_rtot
   )
   opt$par <- setNames(opt$par, par_names)
 
   cl <- if (estimate_cl) exp(opt$par[["lcl"]]) else init_mol$CL_init_L_h_kg
+  vc <- if (estimate_vc) exp(opt$par[["lvc"]]) else init_mol$Vc_init_L_kg
+  q <- if (estimate_q) exp(opt$par[["lq"]]) else init_mol$Q_init_L_h_kg
+  vp <- if (estimate_vp) exp(opt$par[["lvp"]]) else init_mol$Vp_init_L_kg
   r0 <- if (fixed_rtot) init_mol$Rtot_init_nM else exp(opt$par[["lr0"]])
   kdeg <- if (estimate_kdeg) exp(opt$par[["lkdeg"]]) else par_mol$kdeg_h
   kint <- if (estimate_kint) exp(opt$par[["lkint"]]) else par_mol$kint_h
   theta <- c(
     cl = cl,
-    vc = init_mol$Vc_init_L_kg,
-    q = init_mol$Q_init_L_h_kg,
-    vp = init_mol$Vp_init_L_kg,
+    vc = vc,
+    q = q,
+    vp = vp,
     r0 = r0,
     kdeg = kdeg,
     kint = kint,
@@ -762,11 +909,15 @@ fit_qss_bobyqa <- function(dat_mol, par_mol, init_mol, run_name, estimate_kdeg =
   list(
     opt = opt,
     theta = theta,
+    residual_error = c(
+      proportional = exp(opt$par[["lprop"]]),
+      additive_nM = exp(opt$par[["ladd"]])
+    ),
     predictions = simulate_qss_profiles(dat_mol, theta, run_name)
   )
 }
 
-fit_one_molecule <- function(molecule, run_name, estimate_kdeg = FALSE, estimate_cl = FALSE, estimate_kint = FALSE, fixed_rtot = FALSE) {
+fit_one_molecule <- function(molecule, run_name, estimate_kdeg = FALSE, estimate_cl = FALSE, estimate_vc = FALSE, estimate_q = FALSE, estimate_vp = FALSE, estimate_kint = FALSE, fixed_rtot = FALSE) {
   dat_mol <- filter(obs, Molecule == molecule)
   par_mol <- filter(params, Molecule == molecule)
   init_mol <- filter(initial_estimates, Molecule == molecule)
@@ -779,7 +930,19 @@ fit_one_molecule <- function(molecule, run_name, estimate_kdeg = FALSE, estimate
     " nM"
   )
 
-  fit <- fit_qss_bobyqa(dat_mol, par_mol, init_mol, run_name, estimate_kdeg, estimate_cl, estimate_kint, fixed_rtot)
+  fit <- fit_qss_bobyqa(
+    dat_mol = dat_mol,
+    par_mol = par_mol,
+    init_mol = init_mol,
+    run_name = run_name,
+    estimate_kdeg = estimate_kdeg,
+    estimate_cl = estimate_cl,
+    estimate_vc = estimate_vc,
+    estimate_q = estimate_q,
+    estimate_vp = estimate_vp,
+    estimate_kint = estimate_kint,
+    fixed_rtot = fixed_rtot
+  )
 
   list(
     fit = fit,
@@ -795,6 +958,8 @@ fit_one_molecule <- function(molecule, run_name, estimate_kdeg = FALSE, estimate
       Vc_L_kg = fit$theta[["vc"]],
       Q_L_h_kg = fit$theta[["q"]],
       Vp_L_kg = fit$theta[["vp"]],
+      Proportional_Error = fit$residual_error[["proportional"]],
+      Additive_Error_nM = fit$residual_error[["additive_nM"]],
       Fit_Status = ifelse(fit$opt$ierr == 0, "success", paste0("bobyqa_ierr_", fit$opt$ierr)),
       Fit_Error = ifelse(fit$opt$ierr == 0, NA_character_, fit$opt$msg)
     ),
@@ -802,9 +967,19 @@ fit_one_molecule <- function(molecule, run_name, estimate_kdeg = FALSE, estimate
   )
 }
 
-safe_fit_one_molecule <- function(molecule, run_name, estimate_kdeg = FALSE, estimate_cl = FALSE, estimate_kint = FALSE, fixed_rtot = FALSE) {
+safe_fit_one_molecule <- function(molecule, run_name, estimate_kdeg = FALSE, estimate_cl = FALSE, estimate_vc = FALSE, estimate_q = FALSE, estimate_vp = FALSE, estimate_kint = FALSE, fixed_rtot = FALSE) {
   tryCatch(
-    fit_one_molecule(molecule, run_name, estimate_kdeg, estimate_cl, estimate_kint, fixed_rtot),
+    fit_one_molecule(
+      molecule = molecule,
+      run_name = run_name,
+      estimate_kdeg = estimate_kdeg,
+      estimate_cl = estimate_cl,
+      estimate_vc = estimate_vc,
+      estimate_q = estimate_q,
+      estimate_vp = estimate_vp,
+      estimate_kint = estimate_kint,
+      fixed_rtot = fixed_rtot
+    ),
     error = function(e) {
       warning(run_name, " failed for ", molecule, ": ", conditionMessage(e), call. = FALSE)
       list(
@@ -821,6 +996,8 @@ safe_fit_one_molecule <- function(molecule, run_name, estimate_kdeg = FALSE, est
           Vc_L_kg = NA_real_,
           Q_L_h_kg = NA_real_,
           Vp_L_kg = NA_real_,
+          Proportional_Error = NA_real_,
+          Additive_Error_nM = NA_real_,
           Fit_Status = "failed",
           Fit_Error = conditionMessage(e)
         ),
@@ -843,6 +1020,7 @@ safe_fit_one_molecule <- function(molecule, run_name, estimate_kdeg = FALSE, est
 
 ```{r}
 #| label: Run1
+#| eval: false
 #| warning: false
 #| message: false
 
@@ -867,6 +1045,7 @@ run1_fit_summary %>%
 
 ```{r}
 #| label: Run2
+#| eval: false
 #| warning: false
 #| message: false
 
@@ -889,6 +1068,7 @@ run2_fit_summary %>%
 
 ```{r}
 #| label: Run3
+#| eval: false
 #| warning: false
 #| message: false
 
@@ -913,27 +1093,80 @@ run3_fit_summary %>%
   kable(digits = 4, caption = "Run 3: QSS TMDD fits estimating CL and kint with fixed dataset Rtot")
 ```
 
+# TMDD QSS Fits: Run4
+
+```{r}
+#| label: Run4
+#| eval: true
+#| warning: false
+#| message: false
+
+molecules <- sort(unique(obs$Molecule))
+
+run4_fits <- fit_or_read_run(
+  "Run4_CL_Vc_Q_Vp_fixed_TMDD",
+  set_names(molecules) %>%
+    map(~ safe_fit_one_molecule(
+      .x,
+      run_name = "Run4_CL_Vc_Q_Vp_fixed_TMDD",
+      estimate_cl = TRUE,
+      estimate_vc = TRUE,
+      estimate_q = TRUE,
+      estimate_vp = TRUE,
+      fixed_rtot = TRUE
+    ))
+)
+
+run4_fit_summary <- map_dfr(run4_fits, "summary")
+run4_predictions <- map_dfr(run4_fits, "predictions")
+
+run4_fit_summary %>%
+  select(
+    Run, Molecule, Fit_Status, OFV, Rtot_nM, kdeg_h, kint_h, Kss_nM,
+    CL_L_h_kg, Vc_L_kg, Q_L_h_kg, Vp_L_kg,
+    Proportional_Error, Additive_Error_nM, Fit_Error
+  ) %>%
+  arrange(Molecule) %>%
+  kable(
+    digits = 4,
+    caption = "Run 4: QSS TMDD fits estimating CL, Vc, Q, and Vp with fixed per-molecule TMDD inputs"
+  )
+```
+
 # Process outputs
+
+Terminal `lambda_z` is selected from consecutive post-Cmax suffixes using the
+largest adjusted R-squared. `AUCinf = AUClast + Clast/lambda_z`, and
+whole-animal clearance is `24 * Dose * BW / AUCinf` using the generic 3.5 kg
+monkey body weight, never an individual animal weight. Whole-profile goodness
+of fit is the arithmetic mean of predicted/observed fold errors at common
+positive observed concentrations at 0, 0.25, 1, 2, 4, 6, 12, 24, 48, 96,
+168, 336, and 504 h.
 
 ```{r}
 #| label: process-outputs
 
-fit_summary <- bind_rows(run1_fit_summary, run3_fit_summary) %>%
+fit_summary <- run4_fit_summary %>%
   arrange(Molecule, Run)
 
-predictions <- bind_rows(run1_predictions, run3_predictions)
+predictions <- run4_predictions
 
 obs_metrics <- obs %>%
   group_by(Molecule, Dose, ID) %>%
   summarise(
     Obs_Cmax = max(Conc_ugmL, na.rm = TRUE),
     Obs_AUC = trapz_auc(Time_h, Conc_ugmL, t_end = AUC_END_H),
+    Obs_lambda_z_1_h = best_terminal_lambda_z(Time_h, Conc_ugmL),
+    Obs_AUCinf = auc_inf_ug_h_ml(Time_h, Conc_ugmL, Obs_lambda_z_1_h),
+    Obs_CL_L_day = terminal_clearance_l_day(Dose[1], BW_MONKEY_KG, Obs_AUCinf),
     .groups = "drop"
   ) %>%
   group_by(Molecule, Dose) %>%
   summarise(
     Obs_Cmax = mean(Obs_Cmax, na.rm = TRUE),
     Obs_AUC = mean(Obs_AUC, na.rm = TRUE),
+    Obs_AUCinf = mean_or_na(Obs_AUCinf),
+    Obs_CL_L_day = mean_or_na(Obs_CL_L_day),
     .groups = "drop"
   )
 
@@ -943,29 +1176,102 @@ pred_metrics <- predictions %>%
   summarise(
     Pred_Cmax = max(Pred_ugmL, na.rm = TRUE),
     Pred_AUC = trapz_auc(TIME, Pred_ugmL, t_end = AUC_END_H),
+    Pred_lambda_z_1_h = best_terminal_lambda_z(TIME, Pred_ugmL),
+    Pred_AUCinf = auc_inf_ug_h_ml(TIME, Pred_ugmL, Pred_lambda_z_1_h),
+    Pred_CL_L_day = terminal_clearance_l_day(Dose[1], BW_MONKEY_KG, Pred_AUCinf),
     .groups = "drop"
   ) %>%
   group_by(Run, Molecule, Dose) %>%
   summarise(
     Pred_Cmax = mean(Pred_Cmax, na.rm = TRUE),
     Pred_AUC = mean(Pred_AUC, na.rm = TRUE),
+    Pred_AUCinf = mean_or_na(Pred_AUCinf),
+    Pred_CL_L_day = mean_or_na(Pred_CL_L_day),
+    .groups = "drop"
+  )
+
+obs_profile_timepoints <- obs %>%
+  group_by(Molecule, Dose, ID) %>%
+  group_modify(~ evaluate_profile_timepoints(.x$Time_h, .x$Conc_ugmL)) %>%
+  ungroup() %>%
+  group_by(Molecule, Dose, Eval_Time_h) %>%
+  summarise(Obs_Eval_Conc = mean_or_na(Eval_Conc_ug_mL), .groups = "drop")
+
+pred_profile_timepoints <- predictions %>%
+  left_join(obs %>% distinct(ID, Molecule, Dose), by = c("ID", "Molecule")) %>%
+  group_by(Run, Molecule, Dose, ID) %>%
+  group_modify(~ evaluate_profile_timepoints(.x$TIME, .x$Pred_ugmL)) %>%
+  ungroup() %>%
+  group_by(Run, Molecule, Dose, Eval_Time_h) %>%
+  summarise(Pred_Eval_Conc = mean_or_na(Eval_Conc_ug_mL), .groups = "drop")
+
+profile_gof <- full_join(
+  pred_profile_timepoints,
+  obs_profile_timepoints,
+  by = c("Molecule", "Dose", "Eval_Time_h")
+) %>%
+  group_by(Run, Molecule, Dose) %>%
+  summarise(
+    Obs_mean_profile_conc = mean_or_na(Obs_Eval_Conc),
+    Pred_mean_profile_conc = mean_or_na(Pred_Eval_Conc),
+    GOF_timepoints_n = sum(
+      is.finite(Obs_Eval_Conc) & Obs_Eval_Conc > 0 & is.finite(Pred_Eval_Conc)
+    ),
+    Mean_pointwise_FE = mean_or_na(if_else(
+      is.finite(Obs_Eval_Conc) & Obs_Eval_Conc > 0 & is.finite(Pred_Eval_Conc),
+      Pred_Eval_Conc / Obs_Eval_Conc,
+      NA_real_
+    )),
     .groups = "drop"
   )
 
 metrics_tbl <- pred_metrics %>%
   left_join(obs_metrics, by = c("Molecule", "Dose")) %>%
+  left_join(profile_gof, by = c("Run", "Molecule", "Dose")) %>%
   mutate(
+    Species = "Monkey",
+    BW_kg = BW_MONKEY_KG,
     FE_Cmax = Pred_Cmax / Obs_Cmax,
-    FE_AUC = Pred_AUC / Obs_AUC
+    FE_AUC = Pred_AUC / Obs_AUC,
+    FE_AUCinf = Pred_AUCinf / Obs_AUCinf,
+    FE_CL = Pred_CL_L_day / Obs_CL_L_day
   ) %>%
+  left_join(params %>% distinct(Molecule, Target), by = "Molecule") %>%
   arrange(Molecule, Dose, Run)
 
+metrics_export <- metrics_tbl %>%
+  transmute(
+    Run, Species, Target, Molecule,
+    `Dose (mg/kg)` = Dose,
+    `Generic BW (kg)` = BW_kg,
+    `Observed Cmax (ug/mL)` = Obs_Cmax,
+    `Predicted Cmax (ug/mL)` = Pred_Cmax,
+    `FE Cmax` = FE_Cmax,
+    `Observed AUC0-28d (ug*h/mL)` = Obs_AUC,
+    `Predicted AUC0-28d (ug*h/mL)` = Pred_AUC,
+    `FE AUC0-28d` = FE_AUC,
+    `Observed AUCinf (ug*h/mL)` = Obs_AUCinf,
+    `Predicted AUCinf (ug*h/mL)` = Pred_AUCinf,
+    `FE AUCinf` = FE_AUCinf,
+    `Observed terminal CL (L/day)` = Obs_CL_L_day,
+    `Predicted terminal CL (L/day)` = Pred_CL_L_day,
+    `FE terminal CL` = FE_CL,
+    `Observed mean profile concentration (ug/mL)` = Obs_mean_profile_conc,
+    `Predicted mean profile concentration (ug/mL)` = Pred_mean_profile_conc,
+    `Mean pointwise FE` = Mean_pointwise_FE,
+    `GOF timepoints (n)` = GOF_timepoints_n
+  )
+
 ofv_rtot_tbl <- fit_summary %>%
-  select(Run, Molecule, Fit_Status, OFV, Rtot_nM, kdeg_h, kint_h, Kss_nM, CL_L_h_kg, Fit_Error) %>%
+  select(
+    Run, Molecule, Fit_Status, OFV, Rtot_nM, kdeg_h, kint_h, Kss_nM,
+    CL_L_h_kg, Vc_L_kg, Q_L_h_kg, Vp_L_kg,
+    Proportional_Error, Additive_Error_nM, Fit_Error
+  ) %>%
   arrange(Molecule, Run)
 
 ofv_rtot_tbl %>%
-  kable(digits = 4, caption = "OFV and estimated top-down TMDD parameters by molecule and run")
+  kable(digits = 4, caption = "Run 4 fit results and model parameters by molecule")
 
 metrics_tbl %>%
   mutate(
@@ -974,21 +1280,40 @@ metrics_tbl %>%
     FE_Cmax = map_chr(FE_Cmax, fmt_fe),
     Obs_AUC = round(Obs_AUC, 1),
     Pred_AUC = round(Pred_AUC, 1),
-    FE_AUC = map_chr(FE_AUC, fmt_fe)
+    FE_AUC = map_chr(FE_AUC, fmt_fe),
+    Obs_AUCinf = round(Obs_AUCinf, 1),
+    Pred_AUCinf = round(Pred_AUCinf, 1),
+    FE_AUCinf = map_chr(FE_AUCinf, fmt_fe),
+    Obs_CL_L_day = round(Obs_CL_L_day, 3),
+    Pred_CL_L_day = round(Pred_CL_L_day, 3),
+    FE_CL = map_chr(FE_CL, fmt_fe),
+    Obs_mean_profile_conc = round(Obs_mean_profile_conc, 2),
+    Pred_mean_profile_conc = round(Pred_mean_profile_conc, 2),
+    Mean_pointwise_FE = map_chr(Mean_pointwise_FE, fmt_fe)
   ) %>%
   select(
-    Run, Molecule, Dose,
+    Run, Species, Target, Molecule, Dose, `Generic BW (kg)` = BW_kg,
     `Observed Cmax (ug/mL)` = Obs_Cmax,
     `Predicted Cmax (ug/mL)` = Pred_Cmax,
     `FE Cmax` = FE_Cmax,
-    `Observed AUC0-672h (ug*h/mL)` = Obs_AUC,
-    `Predicted AUC0-672h (ug*h/mL)` = Pred_AUC,
-    `FE AUC` = FE_AUC
+    `Observed AUC0-28d (ug*h/mL)` = Obs_AUC,
+    `Predicted AUC0-28d (ug*h/mL)` = Pred_AUC,
+    `FE AUC0-28d` = FE_AUC,
+    `Observed AUCinf (ug*h/mL)` = Obs_AUCinf,
+    `Predicted AUCinf (ug*h/mL)` = Pred_AUCinf,
+    `FE AUCinf` = FE_AUCinf,
+    `Observed terminal CL (L/day)` = Obs_CL_L_day,
+    `Predicted terminal CL (L/day)` = Pred_CL_L_day,
+    `FE terminal CL` = FE_CL,
+    `Observed mean profile concentration (ug/mL)` = Obs_mean_profile_conc,
+    `Predicted mean profile concentration (ug/mL)` = Pred_mean_profile_conc,
+    `Mean pointwise FE` = Mean_pointwise_FE,
+    `GOF timepoints (n)` = GOF_timepoints_n
   ) %>%
   kbl(
     escape = FALSE,
     digits = 3,
-    caption = "Observed and fitted Cmax/AUC with fold error by molecule and run"
+    caption = "Monkey Cmax, AUC0-28d, AUCinf, whole-animal clearance, and profile goodness of fit"
   ) %>%
   kable_styling(
     bootstrap_options = c("striped", "hover", "condensed"),
@@ -999,7 +1324,7 @@ metrics_tbl %>%
 write.xlsx(
   list(
     OFV_Rtot = ofv_rtot_tbl,
-    Metrics = metrics_tbl,
+    Metrics_Monkey = metrics_export,
     Fixed_TMDD_Inputs = params,
     Predictions = predictions
   ),
@@ -1012,13 +1337,14 @@ saveRDS(
     fit_summary = fit_summary,
     ofv_rtot_tbl = ofv_rtot_tbl,
     metrics_tbl = metrics_tbl,
+    metrics_export = metrics_export,
     predictions = predictions
   ),
-  file.path(outdir, "TopDownTMDD_Run1_Run3_processed_Monkey.rds")
+  file.path(outdir, "TopDownTMDD_Run4_processed_Monkey.rds")
 )
 
 write.csv(ofv_rtot_tbl, file.path(outdir, "TopDownTMDD_OFV_Rtot_Monkey.csv"), row.names = FALSE)
-write.csv(metrics_tbl, file.path(outdir, "TopDownTMDD_metrics_Monkey.csv"), row.names = FALSE)
+write.csv(metrics_export, file.path(outdir, "TopDownTMDD_metrics_Monkey.csv"), row.names = FALSE)
 ```
 
 # Diagnostic plots
@@ -1031,7 +1357,7 @@ write.csv(metrics_tbl, file.path(outdir, "TopDownTMDD_metrics_Monkey.csv"), row.
 ggplot() +
   geom_line(
     data = predictions %>%
-      filter(Run == "Run3_CL_kint_fixed_Rtot", TIME <= AUC_END_H) %>%
+      filter(Run == "Run4_CL_Vc_Q_Vp_fixed_TMDD", TIME <= AUC_END_H) %>%
       left_join(obs %>% distinct(ID, Molecule, Dose), by = c("ID", "Molecule")) %>%
       left_join(params %>% distinct(Molecule, Target), by = "Molecule") %>%
       arrange(Target, Molecule, Dose, TIME) %>%
@@ -1069,7 +1395,7 @@ ggplot() +
     x = "Time post dose (days)",
     y = "Plasma Concentration (ug/mL)",
     title = "Monkey top-down QSS TMDD fitted profiles",
-    subtitle = "Run 3 final model: CL and kint estimated, dataset Rtot fixed | Window = 0-28 days post dose"
+    subtitle = "Run 4: CL, Vc, Q, and Vp estimated; per-molecule TMDD inputs fixed | Window = 0-28 days post dose"
   ) +
   theme_bw(base_size = 11) +
   theme(
@@ -1080,7 +1406,7 @@ ggplot() +
   )
 
 ggsave(
-  file.path(figures_dir, "TopDownTMDD_Run3_Monkey_ObsPred.png"),
+  file.path(figures_dir, "TopDownTMDD_Run4_Monkey_ObsPred.png"),
   last_plot(), width = 12, height = 8, dpi = 150
 )
 ```
