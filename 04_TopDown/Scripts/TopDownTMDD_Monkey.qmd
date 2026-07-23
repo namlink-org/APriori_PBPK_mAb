@@ -33,6 +33,8 @@ AUC_END_H <- 28 * 24
 PROFILE_TIMEPOINTS_H <- c(0, 0.25, 1, 2, 4, 6, 12, 24, 48, 96, 168, 336, 504)
 BW_MONKEY_KG <- 3.5
 FORCE_RERUN <- FALSE
+run4_cache_path <- file.path(outdir, "TopDownTMDD_Run4_CL_Vc_Q_Vp_fixed_TMDD_Monkey.rds")
+RUN4_WARM_START <- if (file.exists(run4_cache_path)) readRDS(run4_cache_path) else NULL
 
 normalize_names <- function(x) {
   x %>%
@@ -860,6 +862,18 @@ fit_qss_bobyqa <- function(dat_mol, par_mol, init_mol, run_name, estimate_kdeg =
   lower <- c(lower, lprop = log(1e-4), ladd = log(1e-4))
   upper <- c(upper, lprop = log(1.5), ladd = log(1e4))
 
+  molecule <- unique(dat_mol$Molecule)
+  if (
+    identical(run_name, "Run4_CL_Vc_Q_Vp_fixed_TMDD") &&
+    length(molecule) == 1 &&
+    !is.null(RUN4_WARM_START[[molecule]])
+  ) {
+    warm_par <- RUN4_WARM_START[[molecule]]$fit$opt$par
+    if (all(names(start) %in% names(warm_par))) {
+      start <- warm_par[names(start)]
+    }
+  }
+
   start <- pmin(pmax(start, lower + 1e-8), upper - 1e-8)
   par_names <- names(start)
   objective_named <- function(par, ...) {
@@ -872,7 +886,7 @@ fit_qss_bobyqa <- function(dat_mol, par_mol, init_mol, run_name, estimate_kdeg =
     fn = objective_named,
     lower = lower,
     upper = upper,
-    control = list(maxfun = 1200, rhobeg = 0.2, rhoend = 1e-6),
+    control = list(maxfun = 3000, rhobeg = 0.05, rhoend = 1e-6),
     dat_mol = dat_mol,
     par_mol = par_mol,
     init_mol = init_mol,
@@ -886,6 +900,52 @@ fit_qss_bobyqa <- function(dat_mol, par_mol, init_mol, run_name, estimate_kdeg =
     fixed_rtot = fixed_rtot
   )
   opt$par <- setNames(opt$par, par_names)
+
+  covariance_step <- tryCatch({
+    hessian <- numDeriv::hessian(
+      func = objective_named,
+      x = opt$par,
+      dat_mol = dat_mol,
+      par_mol = par_mol,
+      init_mol = init_mol,
+      run_name = run_name,
+      estimate_kdeg = estimate_kdeg,
+      estimate_cl = estimate_cl,
+      estimate_vc = estimate_vc,
+      estimate_q = estimate_q,
+      estimate_vp = estimate_vp,
+      estimate_kint = estimate_kint,
+      fixed_rtot = fixed_rtot
+    )
+    hessian <- (hessian + t(hessian)) / 2
+    eigenvalues <- eigen(hessian, symmetric = TRUE, only.values = TRUE)$values
+    if (any(!is.finite(hessian)) || any(!is.finite(eigenvalues))) {
+      stop("non-finite Hessian")
+    }
+    if (min(eigenvalues) <= 0) {
+      stop("Hessian is not positive definite")
+    }
+    covariance <- 2 * solve(hessian)
+    se_log <- sqrt(diag(covariance))
+    names(se_log) <- par_names
+    list(
+      covariance = covariance,
+      se_log = se_log,
+      rse_percent = 100 * se_log,
+      status = "success",
+      min_eigenvalue = min(eigenvalues),
+      condition_number = max(eigenvalues) / min(eigenvalues)
+    )
+  }, error = function(e) {
+    list(
+      covariance = NULL,
+      se_log = setNames(rep(NA_real_, length(par_names)), par_names),
+      rse_percent = setNames(rep(NA_real_, length(par_names)), par_names),
+      status = paste0("failed: ", conditionMessage(e)),
+      min_eigenvalue = NA_real_,
+      condition_number = NA_real_
+    )
+  })
 
   cl <- if (estimate_cl) exp(opt$par[["lcl"]]) else init_mol$CL_init_L_h_kg
   vc <- if (estimate_vc) exp(opt$par[["lvc"]]) else init_mol$Vc_init_L_kg
@@ -909,6 +969,12 @@ fit_qss_bobyqa <- function(dat_mol, par_mol, init_mol, run_name, estimate_kdeg =
   list(
     opt = opt,
     theta = theta,
+    covariance = covariance_step$covariance,
+    standard_error_log = covariance_step$se_log,
+    rse_percent = covariance_step$rse_percent,
+    covariance_status = covariance_step$status,
+    hessian_min_eigenvalue = covariance_step$min_eigenvalue,
+    hessian_condition_number = covariance_step$condition_number,
     residual_error = c(
       proportional = exp(opt$par[["lprop"]]),
       additive_nM = exp(opt$par[["ladd"]])
@@ -955,11 +1021,15 @@ fit_one_molecule <- function(molecule, run_name, estimate_kdeg = FALSE, estimate
       kint_h = fit$theta[["kint"]],
       Kss_nM = fit$theta[["kss"]],
       CL_L_h_kg = fit$theta[["cl"]],
+      CL_RSE_pct = fit$rse_percent[["lcl"]],
       Vc_L_kg = fit$theta[["vc"]],
       Q_L_h_kg = fit$theta[["q"]],
       Vp_L_kg = fit$theta[["vp"]],
       Proportional_Error = fit$residual_error[["proportional"]],
       Additive_Error_nM = fit$residual_error[["additive_nM"]],
+      Covariance_Status = fit$covariance_status,
+      Hessian_Min_Eigenvalue = fit$hessian_min_eigenvalue,
+      Hessian_Condition_Number = fit$hessian_condition_number,
       Fit_Status = ifelse(fit$opt$ierr == 0, "success", paste0("bobyqa_ierr_", fit$opt$ierr)),
       Fit_Error = ifelse(fit$opt$ierr == 0, NA_character_, fit$opt$msg)
     ),
@@ -1123,8 +1193,9 @@ run4_predictions <- map_dfr(run4_fits, "predictions")
 run4_fit_summary %>%
   select(
     Run, Molecule, Fit_Status, OFV, Rtot_nM, kdeg_h, kint_h, Kss_nM,
-    CL_L_h_kg, Vc_L_kg, Q_L_h_kg, Vp_L_kg,
-    Proportional_Error, Additive_Error_nM, Fit_Error
+    CL_L_h_kg, CL_RSE_pct, Vc_L_kg, Q_L_h_kg, Vp_L_kg,
+    Proportional_Error, Additive_Error_nM, Covariance_Status,
+    Hessian_Min_Eigenvalue, Hessian_Condition_Number, Fit_Error
   ) %>%
   arrange(Molecule) %>%
   kable(
@@ -1265,8 +1336,9 @@ metrics_export <- metrics_tbl %>%
 ofv_rtot_tbl <- fit_summary %>%
   select(
     Run, Molecule, Fit_Status, OFV, Rtot_nM, kdeg_h, kint_h, Kss_nM,
-    CL_L_h_kg, Vc_L_kg, Q_L_h_kg, Vp_L_kg,
-    Proportional_Error, Additive_Error_nM, Fit_Error
+    CL_L_h_kg, CL_RSE_pct, Vc_L_kg, Q_L_h_kg, Vp_L_kg,
+    Proportional_Error, Additive_Error_nM, Covariance_Status,
+    Hessian_Min_Eigenvalue, Hessian_Condition_Number, Fit_Error
   ) %>%
   arrange(Molecule, Run)
 
