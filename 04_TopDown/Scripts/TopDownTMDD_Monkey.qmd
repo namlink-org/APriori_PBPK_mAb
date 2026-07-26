@@ -33,8 +33,29 @@ AUC_END_H <- 28 * 24
 PROFILE_TIMEPOINTS_H <- c(0, 0.25, 1, 2, 4, 6, 12, 24, 48, 96, 168, 336, 504)
 BW_MONKEY_KG <- 3.5
 FORCE_RERUN <- FALSE
+RUN5_FORCE_RERUN <- FALSE
 run4_cache_path <- file.path(outdir, "TopDownTMDD_Run4_CL_Vc_Q_Vp_fixed_TMDD_Monkey.rds")
 RUN4_WARM_START <- if (file.exists(run4_cache_path)) readRDS(run4_cache_path) else NULL
+
+# Cynomolgus monkey typical linear mAb PK parameters from Betts et al. (2018),
+# Table 2 (PMCID: PMC6150614), converted from mL to L.
+CYNOMOLGUS_TYPICAL_MAB_PK <- c(
+  CL_L_h_kg = 0.00027,
+  Vc_L_kg = 0.03929,
+  Q_L_h_kg = 0.00100,
+  Vp_L_kg = 0.02756
+)
+
+# Parameters that remained at or above 40% RSE after rerunning Run4 from the
+# previous fitted estimates are fixed to the cynomolgus typical values.
+RUN4_TYPICAL_FIXES <- tribble(
+  ~Molecule,       ~Fix_Q, ~Fix_Vp,
+  "Adalimumab",    TRUE,   TRUE,
+  "Atezolizumab",  TRUE,   FALSE,
+  "Bevacizumab",   TRUE,   FALSE,
+  "Nivolumab",     TRUE,   FALSE,
+  "Tocilizumab",   TRUE,   FALSE
+)
 
 normalize_names <- function(x) {
   x %>%
@@ -504,7 +525,7 @@ The QSS binding constant is fixed from the in vitro kinetic inputs:
 
 `Kss = (koff + kint) / kon`, where `kon = koff / KD`.
 
-Runs 1-3 are retained below for reference but are not evaluated. Run 4 estimates the structural PK terms `CL`, `Vc`, `Q`, and `Vp`, together with the proportional and additive residual-error terms. All TMDD parameters are fixed per molecule to the parameter workbook values, including `Rtot` (the reference concentration), `kdeg_target`, and `kint`.
+Runs 1-3 are retained below for reference but are not evaluated. Run 4 initially estimates the structural PK terms `CL`, `Vc`, `Q`, and `Vp`, together with the proportional and additive residual-error terms. The final Run 4 pass uses the previous fitted estimates as warm starts, then fixes any structural parameter that remains at or above 40% RSE to the cynomolgus monkey typical mAb value from Betts et al. (2018; PMCID: PMC6150614). All TMDD parameters are fixed per molecule to the parameter workbook values, including `Rtot` (the reference concentration), `kdeg_target`, and `kint`.
 
 ```{r}
 #| label: model-helpers
@@ -874,6 +895,24 @@ fit_qss_bobyqa <- function(dat_mol, par_mol, init_mol, run_name, estimate_kdeg =
     }
   }
 
+  if (
+    identical(run_name, "Run5_CL_Vc_Q_Vp_Run4_initials") &&
+    length(molecule) == 1 &&
+    !is.null(RUN4_WARM_START[[molecule]])
+  ) {
+    run4_fit <- RUN4_WARM_START[[molecule]]$fit
+    run4_theta <- run4_fit$theta
+    run4_start <- c(
+      lcl = log(run4_theta[["cl"]]),
+      lvc = log(run4_theta[["vc"]]),
+      lq = log(run4_theta[["q"]]),
+      lvp = log(run4_theta[["vp"]]),
+      lprop = log(run4_fit$residual_error[["proportional"]]),
+      ladd = log(run4_fit$residual_error[["additive_nM"]])
+    )
+    start[names(start)] <- run4_start[names(start)]
+  }
+
   start <- pmin(pmax(start, lower + 1e-8), upper - 1e-8)
   par_names <- names(start)
   objective_named <- function(par, ...) {
@@ -987,6 +1026,25 @@ fit_one_molecule <- function(molecule, run_name, estimate_kdeg = FALSE, estimate
   dat_mol <- filter(obs, Molecule == molecule)
   par_mol <- filter(params, Molecule == molecule)
   init_mol <- filter(initial_estimates, Molecule == molecule)
+  run4_fix <- RUN4_TYPICAL_FIXES %>%
+    filter(Molecule == molecule)
+
+  if (identical(run_name, "Run4_CL_Vc_Q_Vp_fixed_TMDD") && nrow(run4_fix) == 1) {
+    if (isTRUE(run4_fix$Fix_Q)) {
+      init_mol <- init_mol %>%
+        mutate(
+          Q_init_L_h_kg = CYNOMOLGUS_TYPICAL_MAB_PK[["Q_L_h_kg"]],
+          lq_init = log(Q_init_L_h_kg)
+        )
+    }
+    if (isTRUE(run4_fix$Fix_Vp)) {
+      init_mol <- init_mol %>%
+        mutate(
+          Vp_init_L_kg = CYNOMOLGUS_TYPICAL_MAB_PK[["Vp_L_kg"]],
+          lvp_init = log(Vp_init_L_kg)
+        )
+    }
+  }
 
   message(
     "Starting ", molecule, " ", run_name,
@@ -1021,10 +1079,17 @@ fit_one_molecule <- function(molecule, run_name, estimate_kdeg = FALSE, estimate
       kint_h = fit$theta[["kint"]],
       Kss_nM = fit$theta[["kss"]],
       CL_L_h_kg = fit$theta[["cl"]],
-      CL_RSE_pct = fit$rse_percent[["lcl"]],
+      CL_RSE_pct = if (estimate_cl) fit$rse_percent[["lcl"]] else NA_real_,
       Vc_L_kg = fit$theta[["vc"]],
+      Vc_RSE_pct = if (estimate_vc) fit$rse_percent[["lvc"]] else NA_real_,
       Q_L_h_kg = fit$theta[["q"]],
+      Q_RSE_pct = if (estimate_q) fit$rse_percent[["lq"]] else NA_real_,
       Vp_L_kg = fit$theta[["vp"]],
+      Vp_RSE_pct = if (estimate_vp) fit$rse_percent[["lvp"]] else NA_real_,
+      CL_Status = if_else(estimate_cl, "Estimated", "Fixed"),
+      Vc_Status = if_else(estimate_vc, "Estimated", "Fixed"),
+      Q_Status = if_else(estimate_q, "Estimated", "Fixed to cynomolgus typical"),
+      Vp_Status = if_else(estimate_vp, "Estimated", "Fixed to cynomolgus typical"),
       Proportional_Error = fit$residual_error[["proportional"]],
       Additive_Error_nM = fit$residual_error[["additive_nM"]],
       Covariance_Status = fit$covariance_status,
@@ -1181,8 +1246,8 @@ run4_fits <- fit_or_read_run(
       run_name = "Run4_CL_Vc_Q_Vp_fixed_TMDD",
       estimate_cl = TRUE,
       estimate_vc = TRUE,
-      estimate_q = TRUE,
-      estimate_vp = TRUE,
+      estimate_q = !(.x %in% filter(RUN4_TYPICAL_FIXES, Fix_Q)$Molecule),
+      estimate_vp = !(.x %in% filter(RUN4_TYPICAL_FIXES, Fix_Vp)$Molecule),
       fixed_rtot = TRUE
     ))
 )
@@ -1193,14 +1258,85 @@ run4_predictions <- map_dfr(run4_fits, "predictions")
 run4_fit_summary %>%
   select(
     Run, Molecule, Fit_Status, OFV, Rtot_nM, kdeg_h, kint_h, Kss_nM,
-    CL_L_h_kg, CL_RSE_pct, Vc_L_kg, Q_L_h_kg, Vp_L_kg,
+    CL_L_h_kg, CL_RSE_pct, CL_Status, Vc_L_kg, Vc_RSE_pct, Vc_Status,
+    Q_L_h_kg, Q_RSE_pct, Q_Status, Vp_L_kg, Vp_RSE_pct, Vp_Status,
     Proportional_Error, Additive_Error_nM, Covariance_Status,
     Hessian_Min_Eigenvalue, Hessian_Condition_Number, Fit_Error
   ) %>%
   arrange(Molecule) %>%
   kable(
     digits = 4,
-    caption = "Run 4: QSS TMDD fits estimating CL, Vc, Q, and Vp with fixed per-molecule TMDD inputs"
+    caption = "Run 4: QSS TMDD fits after fixing structural parameters with RSE >=40% to cynomolgus typical mAb values"
+  )
+```
+
+# TMDD QSS Fits: Run5
+
+Run 5 estimates all four structural PK parameters for every molecule. Its
+initial estimates are the final Run 4 values, including the cynomolgus typical
+values used for parameters fixed in the final Run 4 pass.
+
+```{r}
+#| label: Run5
+#| eval: true
+#| warning: false
+#| message: false
+
+run5_fits <- fit_or_read_run(
+  "Run5_CL_Vc_Q_Vp_Run4_initials",
+  set_names(molecules) %>%
+    map(~ safe_fit_one_molecule(
+      .x,
+      run_name = "Run5_CL_Vc_Q_Vp_Run4_initials",
+      estimate_cl = TRUE,
+      estimate_vc = TRUE,
+      estimate_q = TRUE,
+      estimate_vp = TRUE,
+      fixed_rtot = TRUE
+    )),
+  force = RUN5_FORCE_RERUN
+)
+
+run5_fit_summary <- map_dfr(run5_fits, "summary")
+run5_predictions <- map_dfr(run5_fits, "predictions")
+
+run5_fit_summary %>%
+  select(
+    Run, Molecule, Fit_Status, OFV, Rtot_nM, kdeg_h, kint_h, Kss_nM,
+    CL_L_h_kg, CL_RSE_pct, Vc_L_kg, Vc_RSE_pct,
+    Q_L_h_kg, Q_RSE_pct, Vp_L_kg, Vp_RSE_pct,
+    Proportional_Error, Additive_Error_nM, Covariance_Status,
+    Hessian_Min_Eigenvalue, Hessian_Condition_Number, Fit_Error
+  ) %>%
+  arrange(Molecule) %>%
+  kable(
+    digits = 4,
+    caption = "Run 5: all structural PK parameters estimated from final Run 4 initial values"
+  )
+
+run5_rse_evaluation <- run5_fit_summary %>%
+  transmute(
+    Molecule,
+    CL_RSE_pct,
+    Vc_RSE_pct,
+    Q_RSE_pct,
+    Vp_RSE_pct,
+    Max_Structural_RSE_pct = pmax(
+      CL_RSE_pct, Vc_RSE_pct, Q_RSE_pct, Vp_RSE_pct,
+      na.rm = TRUE
+    ),
+    All_Structural_RSE_lt_40 = if_else(
+      CL_RSE_pct < 40 & Vc_RSE_pct < 40 &
+        Q_RSE_pct < 40 & Vp_RSE_pct < 40,
+      "Yes", "No"
+    )
+  ) %>%
+  arrange(Molecule)
+
+run5_rse_evaluation %>%
+  kable(
+    digits = 2,
+    caption = "Run 5 structural-parameter RSE threshold evaluation"
   )
 ```
 
@@ -1217,10 +1353,10 @@ positive observed concentrations at 0, 0.25, 1, 2, 4, 6, 12, 24, 48, 96,
 ```{r}
 #| label: process-outputs
 
-fit_summary <- run4_fit_summary %>%
+fit_summary <- bind_rows(run4_fit_summary, run5_fit_summary) %>%
   arrange(Molecule, Run)
 
-predictions <- run4_predictions
+predictions <- bind_rows(run4_predictions, run5_predictions)
 
 obs_metrics <- obs %>%
   group_by(Molecule, Dose, ID) %>%
@@ -1336,7 +1472,10 @@ metrics_export <- metrics_tbl %>%
 ofv_rtot_tbl <- fit_summary %>%
   select(
     Run, Molecule, Fit_Status, OFV, Rtot_nM, kdeg_h, kint_h, Kss_nM,
-    CL_L_h_kg, CL_RSE_pct, Vc_L_kg, Q_L_h_kg, Vp_L_kg,
+    CL_L_h_kg, CL_RSE_pct, CL_Status,
+    Vc_L_kg, Vc_RSE_pct, Vc_Status,
+    Q_L_h_kg, Q_RSE_pct, Q_Status,
+    Vp_L_kg, Vp_RSE_pct, Vp_Status,
     Proportional_Error, Additive_Error_nM, Covariance_Status,
     Hessian_Min_Eigenvalue, Hessian_Condition_Number, Fit_Error
   ) %>%
@@ -1396,6 +1535,7 @@ metrics_tbl %>%
 write.xlsx(
   list(
     OFV_Rtot = ofv_rtot_tbl,
+    Run5_RSE_Evaluation = run5_rse_evaluation,
     Metrics_Monkey = metrics_export,
     Fixed_TMDD_Inputs = params,
     Predictions = predictions
@@ -1407,15 +1547,21 @@ write.xlsx(
 saveRDS(
   list(
     fit_summary = fit_summary,
+    run5_rse_evaluation = run5_rse_evaluation,
     ofv_rtot_tbl = ofv_rtot_tbl,
     metrics_tbl = metrics_tbl,
     metrics_export = metrics_export,
     predictions = predictions
   ),
-  file.path(outdir, "TopDownTMDD_Run4_processed_Monkey.rds")
+  file.path(outdir, "TopDownTMDD_Run5_processed_Monkey.rds")
 )
 
 write.csv(ofv_rtot_tbl, file.path(outdir, "TopDownTMDD_OFV_Rtot_Monkey.csv"), row.names = FALSE)
+write.csv(
+  run5_rse_evaluation,
+  file.path(outdir, "TopDownTMDD_Run5_RSE_Monkey.csv"),
+  row.names = FALSE
+)
 write.csv(metrics_export, file.path(outdir, "TopDownTMDD_metrics_Monkey.csv"), row.names = FALSE)
 ```
 
@@ -1429,7 +1575,7 @@ write.csv(metrics_export, file.path(outdir, "TopDownTMDD_metrics_Monkey.csv"), r
 ggplot() +
   geom_line(
     data = predictions %>%
-      filter(Run == "Run4_CL_Vc_Q_Vp_fixed_TMDD", TIME <= AUC_END_H) %>%
+      filter(Run == "Run5_CL_Vc_Q_Vp_Run4_initials", TIME <= AUC_END_H) %>%
       left_join(obs %>% distinct(ID, Molecule, Dose), by = c("ID", "Molecule")) %>%
       left_join(params %>% distinct(Molecule, Target), by = "Molecule") %>%
       arrange(Target, Molecule, Dose, TIME) %>%
@@ -1467,7 +1613,7 @@ ggplot() +
     x = "Time post dose (days)",
     y = "Plasma Concentration (ug/mL)",
     title = "Monkey top-down QSS TMDD fitted profiles",
-    subtitle = "Run 4: CL, Vc, Q, and Vp estimated; per-molecule TMDD inputs fixed | Window = 0-28 days post dose"
+    subtitle = "Run 5: CL, Vc, Q, and Vp estimated from final Run 4 initial values | Window = 0-28 days post dose"
   ) +
   theme_bw(base_size = 11) +
   theme(
@@ -1478,7 +1624,7 @@ ggplot() +
   )
 
 ggsave(
-  file.path(figures_dir, "TopDownTMDD_Run4_Monkey_ObsPred.png"),
+  file.path(figures_dir, "TopDownTMDD_Run5_Monkey_ObsPred.png"),
   last_plot(), width = 12, height = 8, dpi = 150
 )
 ```
