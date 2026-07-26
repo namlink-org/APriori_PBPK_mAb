@@ -249,11 +249,14 @@ mw_lookup <- read.csv(
   summarise(MW = median(MW), .groups = "drop")
 
 topdown_processed <- readRDS(
-  file.path(topdown_dir, "TopDownTMDD_Run1_Run3_processed_Monkey.rds")
+  file.path(topdown_dir, "TopDownTMDD_Run4_processed_Monkey.rds")
 )
 
 final_parameters <- topdown_processed$fit_summary %>%
-  filter(Run == "Run3_CL_kint_fixed_Rtot", Molecule %in% mabs_for_design) %>%
+  filter(
+    Run == "Run4_CL_Vc_Q_Vp_fixed_TMDD",
+    Molecule %in% mabs_for_design
+  ) %>%
   transmute(
     Drug = Molecule,
     Rtot_nM,

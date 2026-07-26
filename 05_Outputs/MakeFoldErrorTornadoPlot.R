@@ -76,8 +76,23 @@ read_apriori_sheet <- function(sheet_name) {
     )
 }
 
-read_topdown_file <- function(path) {
-  read.csv(path, check.names = FALSE, stringsAsFactors = FALSE) %>%
+read_topdown_file <- function(path, expected_run) {
+  raw_data <- read.csv(path, check.names = FALSE, stringsAsFactors = FALSE)
+  if (!"Run" %in% names(raw_data)) {
+    stop("TopDown output is missing the Run column: ", path, call. = FALSE)
+  }
+
+  selected_data <- raw_data %>%
+    filter(Run == expected_run)
+  if (nrow(selected_data) == 0L) {
+    stop(
+      "TopDown output does not contain expected run '",
+      expected_run, "': ", path,
+      call. = FALSE
+    )
+  }
+
+  selected_data %>%
     transmute(
       Approach = "TopDown",
       Species = as.character(Species),
@@ -95,8 +110,14 @@ apriori_data <- bind_rows(
 )
 
 topdown_data <- bind_rows(
-  read_topdown_file(topdown_monkey_file),
-  read_topdown_file(topdown_human_file)
+  read_topdown_file(
+    topdown_monkey_file,
+    "Run4_CL_Vc_Q_Vp_fixed_TMDD"
+  ),
+  read_topdown_file(
+    topdown_human_file,
+    "Run4_PK_human_scaled_human_TMDD"
+  )
 )
 
 scenario_keys <- c("Species", "Molecule", "Dose_mg_kg")
