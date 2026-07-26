@@ -1,0 +1,387 @@
+---
+
+title: "01_Setup_Configurations"
+
+author: "NAMLink"
+
+format: html
+
+---
+
+
+```{r}
+#| echo: true
+#| warning: false
+#| message: false
+
+
+rm(list=ls())
+
+library(tidyverse)
+library(readxl)
+library(openxlsx)
+library(purrr)
+library(esqlabsR)
+
+datdir <- "../../01_Data/"
+moddir <- "../../00_Models/PKML_Files"   # flat combined folder (monkey + human)
+```
+
+
+
+```{r}
+# dat <- read.csv(file.path(datdir, "Monkey", "mAb_data.csv"), stringsAsFactors = F, na.strings=F)
+# 
+# params <- read.xlsx(file.path(datdir, "Monkey", "Parameters.xlsx"), sheet=1)
+# 
+# unique(dat$Molecule)
+# 
+# keepers <-params %>%  pull(`Drug.Name`) %>% unique(.)
+# 
+# plotdat <- dat %>% filter(Molecule %in% keepers) %>%
+#   ### Take single dose data only (after 28 days, multiple dose data may be included based on the review of plots)
+#   filter(Species=="NHP", Time < 28*24) %>%
+#   filter(Time < 7*24 | Molecule != "Pembrolizumab") %>% # Pembro seems to be every 7 day dosing (Not needed)
+#   filter(Measurement >=2 | ! Molecule %in% c("Pembrolizumab", "Nipocalimab")) %>%
+#   filter(Time < 14*24 | Molecule != "Atezolizumab") %>% # Atezoli 5 mg/kg seems to be every 14 day dosing (Not needed)
+#   filter(Time > 0) %>%
+#   mutate(Subject.Id = subject.Id2) %>%
+#   select(-subject.Id2) %>%
+#   arrange(Molecule, Dose, Subject.Id, Time) %>%
+#   group_by(Molecule, Dose, Subject.Id, Time) %>%
+#   slice(1) %>%
+#   ungroup()
+# 
+# ggplot(plotdat, aes(x=Time, y=Measurement, color=factor(Dose), group=Subject.Id)) +
+#   geom_line() +
+#   facet_wrap(~Molecule, scales="free") +
+#   scale_y_log10() +
+#   theme_bw()
+# write.csv(plotdat, file.path(datdir, "Monkey", "mAb_data_clean.csv"), row.names=F, na="")
+
+#### Human
+# dat <- read.csv(file.path(datdir, "Human", "mAb_data_human.csv"), stringsAsFactors = F, na.strings=F)
+# # params <- read.xlsx(file.path(datdir, "Human", "Parameters_human.xlsx"), sheet=1)
+#  
+# plotdat <- dat %>%  
+#   ### Take single dose data only 
+#   filter(Species=="Human", Time < 28*24, Molecule!="Pembrolizumab") %>%
+#   arrange(Molecule, Dose, Subject.Id, Time) 
+# 
+# time_bins <- c(0, 0.25, 1, 2, 4, 6, 12, 24, 48, seq(48, 24 * 28, 24 * 2))
+# 
+# Tocidat <- plotdat %>%
+#   filter(Molecule == "Tocilizumab") %>%
+#   mutate(
+#     Time_bin = time_bins[map_int(Time, ~ which.min(abs(time_bins - .x)))]
+#   ) %>%
+#   group_by(Species, Molecule, Dose, Time = Time_bin) %>%
+#   summarize(
+#     Measurement = median(Measurement),
+#     .groups = "drop"
+#   ) %>% ungroup() %>% filter(Time!=336) %>%
+#   full_join(., plotdat %>% filter(Molecule=="Tocilizumab") %>% select(-Time, -Measurement) %>% slice(1) %>% ungroup())
+# 
+# plotdat <- bind_rows(plotdat %>% filter(Molecule!="Tocilizumab"), Tocidat)%>%
+#   arrange(Molecule, Dose, Subject.Id, Time) 
+# 
+# ggplot(plotdat, aes(x=Time, y=Measurement, color=factor(Dose), group=Subject.Id)) +
+#   geom_line() +
+#   facet_wrap(~Molecule, scales="free") +
+#   scale_y_log10() +
+#   theme_bw()
+# write.csv(plotdat, file.path(datdir, "Human", "mAb_data_clean.csv"), row.names=F, na="")
+
+```
+
+# Auto-Generate All 3 Configuration Files
+
+Auto-generates **Applications.xlsx**, **ModelParameters.xlsx**, and
+**Scenarios.xlsx** for all 8 molecules in `mAb_data_clean.csv`.
+Uses `Parameters.xlsx` as the parameter source. Run after the
+data-cleaning section above.
+
+```{r}
+#| warning: false
+#| message: false
+
+# Paths relative to Scripts/ folder (3 levels up to reach Test2/01_Data/)
+datdir  <- "../../01_Data"
+confdir <- "../Configurations"
+
+# Redirect R temp files to D: drive (avoids C: drive space/permission issues).
+# openxlsx saveWorkbook() writes through tempdir() before moving to target.
+conf_abs <- normalizePath(confdir, mustWork = FALSE)
+if (!dir.exists(conf_abs)) dir.create(conf_abs, recursive = TRUE)
+Sys.setenv(TMPDIR = conf_abs, TMP = conf_abs, TEMP = conf_abs)
+
+# Write xlsx to a fresh temp file then copy to target.
+# This bypasses Windows file-lock errors when a file is open in Excel.
+safe_save_xlsx <- function(wb, target_path) {
+  tmp <- tempfile(fileext = ".xlsx")
+  on.exit(try(file.remove(tmp), silent = TRUE))
+  openxlsx::saveWorkbook(wb, tmp, overwrite = TRUE)
+  if (file.exists(target_path))
+    try(file.remove(target_path), silent = TRUE)
+  file.copy(tmp, target_path, overwrite = TRUE)
+  invisible(target_path)
+}
+
+# Load cleaned monkey data
+dat <- read.csv(
+  file.path(datdir, "Monkey", "mAb_data_clean.csv"),
+  stringsAsFactors = FALSE, na.strings = ""
+)
+
+cat("Molecules:", paste(sort(unique(dat$Molecule)), collapse = ", "), "\n")
+cat("Total rows:", nrow(dat), "\n")
+```
+
+```{r v3-params}
+#| warning: false
+
+# Load Monkey Parameters.xlsx (long format: one row per parameter per drug)
+params_long <- read.xlsx(file.path(datdir, "Monkey", "Parameters.xlsx"), sheet = 1)
+names(params_long) <- c("Drug.Name", "Target.Name", "Parameter.Name",
+                         "Value", "Unit", "Source", "Method")
+
+# Load Human Parameters.xlsx — same structure, one parameter differs per drug
+params_long_human <- read.xlsx(file.path(datdir, "Human", "Parameters_human.xlsx"), sheet = 1)
+names(params_long_human) <- c("Drug.Name", "Target.Name", "Parameter.Name",
+                               "Value", "Unit", "Source", "Method")
+
+# Target receptor -> PKML file mapping (monkey and human variants)
+pkml_map_monkey <- c(
+  "PD-L1" = "PKML_Files_Monkey/PKML_Files_Monkey/AntiPDL1.pkml",
+  "PD-1"  = "PKML_Files_Monkey/PKML_Files_Monkey/AntiPD1.pkml",
+  "VEGFA" = "PKML_Files_Monkey/PKML_Files_Monkey/AntiVEGFA.pkml",
+  "IL-6R" = "PKML_Files_Monkey/PKML_Files_Monkey/AntiIL6R.pkml",
+  "TNFA"  = "PKML_Files_Monkey/PKML_Files_Monkey/AntiTNFA.pkml"
+)
+pkml_map_human <- c(
+  "PD-L1" = "PKML_Files_Human/PKML_Files_Human/AntiPDL1.pkml",
+  "PD-1"  = "PKML_Files_Human/PKML_Files_Human/AntiPD1.pkml",
+  "VEGFA" = "PKML_Files_Human/PKML_Files_Human/AntiVEGFA.pkml",
+  "IL-6R" = "PKML_Files_Human/PKML_Files_Human/AntiIL6R.pkml",
+  "TNFA"  = "PKML_Files_Human/PKML_Files_Human/AntiTNFA.pkml"
+)
+
+# Parameter name -> Container Path (confirmed from V2 manual ModelParameters.xlsx)
+container_map <- c(
+  "Kd (FcRn) in endosomal space" = "mAb",
+  "Kd"                           = "mAb-Target-InVitro",
+  "koff"                         = "mAb-Target-InVitro",
+  "kint"                         = "Complex Internalization",
+  "kdeg"                         = "Target degradation",
+  "Reference concentration"      = "Target"
+)
+
+# Parameter name -> Units (confirmed from V2 manual ModelParameters.xlsx)
+unit_map <- c(
+  "Kd (FcRn) in endosomal space" = "µmol/l",
+  "Kd"                           = "µmol/l",
+  "koff"                         = "1/min",
+  "kint"                         = "1/h",
+  "kdeg"                         = "1/h",
+  "Reference concentration"      = "nmol/l"
+)
+
+# Drug -> PKML lookup (monkey)
+drug_pkml_monkey <- params_long %>%
+  distinct(Drug.Name, Target.Name) %>%
+  mutate(Species.label = "Monkey", PKML.File = pkml_map_monkey[Target.Name])
+
+# Drug -> PKML lookup (human)
+drug_pkml_human <- params_long_human %>%
+  distinct(Drug.Name, Target.Name) %>%
+  mutate(Species.label = "Human", PKML.File = pkml_map_human[Target.Name])
+
+drug_pkml <- bind_rows(drug_pkml_monkey, drug_pkml_human)
+
+cat("\nDrug-to-PKML mapping:\n")
+print(drug_pkml)
+```
+
+```{r v3-scenarios-build}
+#| warning: false
+
+# Monkey scenarios — driven by observed NHP data (one scenario per Molecule x Dose)
+scenarios_monkey <- dat %>%
+  distinct(Molecule, Dose) %>%
+  mutate(Species.label = "Monkey") %>%
+  left_join(drug_pkml_monkey %>% select(Drug.Name, PKML.File),
+            by = c("Molecule" = "Drug.Name"))
+
+# Human scenarios — driven by human observed data (clinical doses, NOT monkey doses)
+# SC routes excluded: the PBPK model is IV-only; SC data cannot be compared.
+# Adalimumab IV data (Broeder 2001, 5 doses) is now included.
+dat_human_obs <- read.csv(
+  file.path(datdir, "Human", "mAb_data_human.csv"),
+  stringsAsFactors = FALSE, na.strings = ""
+)
+
+scenarios_human <- dat_human_obs %>%
+  filter(!grepl("^SC$", trimws(Route), ignore.case = TRUE)) %>%
+  distinct(Molecule, Dose) %>%
+  mutate(Species.label = "Human") %>%
+  left_join(drug_pkml_human %>% select(Drug.Name, PKML.File),
+            by = c("Molecule" = "Drug.Name"))
+
+scenarios <- bind_rows(scenarios_monkey, scenarios_human) %>%
+  mutate(Sheet.name = paste(Molecule, Species.label, Dose, "mpk", sep = "_")) %>%
+  arrange(Molecule, Species.label, Dose)
+
+missing_pkml <- scenarios %>% filter(is.na(PKML.File))
+if (nrow(missing_pkml) > 0)
+  warning("No PKML mapped for: ", paste(unique(missing_pkml$Molecule), collapse = ", "))
+scenarios <- scenarios %>% filter(!is.na(PKML.File))
+
+cat("\nScenarios to configure:", nrow(scenarios), "\n")
+print(scenarios %>% select(Molecule, Species.label, Dose, PKML.File))
+```
+
+```{r v3-applications}
+#| warning: false
+
+# ── Applications.xlsx ─────────────────────────────────────────────────────────
+# One sheet per scenario. Container path confirmed from V2 manual file.
+# All routes treated as 1-min bolus approximation (as per V2 convention).
+
+APP_CONTAINER <- "Events|IV_Bolus|Application_1|ProtocolSchemaItem"
+
+wb_app <- createWorkbook()
+
+for (i in seq_len(nrow(scenarios))) {
+  s  <- scenarios[i, ]
+  df <- data.frame(
+    `Container Path`     = APP_CONTAINER,
+    `Parameter Name`     = "DosePerBodyWeight",
+    Value                = s$Dose,
+    Units                = "mg/kg",
+    `Infusion time`      = 1,
+    `Infusion time unit` = "min",
+    check.names = FALSE, stringsAsFactors = FALSE
+  )
+  addWorksheet(wb_app, s$Sheet.name)
+  writeData(wb_app, s$Sheet.name, df)
+  setColWidths(wb_app, s$Sheet.name, cols = 1:6,
+               widths = c(55, 22, 8, 8, 14, 18))
+}
+
+app_path <- file.path(confdir, "Applications.xlsx")
+safe_save_xlsx(wb_app, app_path)
+message("Applications.xlsx written: ", nrow(scenarios), " sheets")
+```
+
+```{r v3-model-params}
+#| warning: false
+
+# ── ModelParameters.xlsx ──────────────────────────────────────────────────────
+# One sheet per Molecule x Species, plus a Global sheet (empty).
+# Confirmed structure from V2 manual file: 6 parameters per sheet, short paths.
+
+PARAM_NAMES <- c("Kd (FcRn) in endosomal space", "Kd", "koff",
+                  "kint", "kdeg", "Reference concentration")
+
+mol_species <- scenarios %>% distinct(Molecule, Species.label)
+
+wb_mp <- createWorkbook()
+
+# Global sheet — required by esqlabsR; empty = no project-wide overrides
+addWorksheet(wb_mp, "Global")
+writeData(wb_mp, "Global",
+          data.frame(`Container Path` = NA_character_,
+                     `Parameter Name` = NA_character_,
+                     Value = NA_real_, Units = NA_character_,
+                     check.names = FALSE))
+
+for (i in seq_len(nrow(mol_species))) {
+  mol  <- mol_species$Molecule[i]
+  spec <- mol_species$Species.label[i]
+
+  # Use human parameters file for human scenarios, monkey file for monkey
+  param_source <- if (spec == "Human") params_long_human else params_long
+
+  mol_rows <- param_source %>%
+    filter(Drug.Name == mol, Parameter.Name %in% PARAM_NAMES) %>%
+    mutate(Parameter.Name = factor(Parameter.Name, levels = PARAM_NAMES)) %>%
+    arrange(Parameter.Name) %>%
+    transmute(
+      `Container Path` = container_map[as.character(Parameter.Name)],
+      `Parameter Name` = as.character(Parameter.Name),
+      Value            = as.numeric(Value),
+      Units            = unit_map[as.character(Parameter.Name)]
+    )
+
+  sheet_nm <- paste0(mol, "_", spec)
+  addWorksheet(wb_mp, sheet_nm)
+  writeData(wb_mp, sheet_nm, mol_rows)
+  setColWidths(wb_mp, sheet_nm, cols = 1:4, widths = c(28, 32, 12, 10))
+}
+
+mp_path <- file.path(confdir, "ModelParameters.xlsx")
+safe_save_xlsx(wb_mp, mp_path)
+message("ModelParameters.xlsx written: ", nrow(mol_species),
+        " molecule x species sheets + Global")
+```
+
+```{r v3-scenarios}
+#| warning: false
+
+# ── Scenarios.xlsx ────────────────────────────────────────────────────────────
+# SimulationTime format confirmed from V2: multi-segment for high resolution
+# in the first 12 h post-dose, then lower resolution for days 1-28.
+SIM_TIME <- "0, 12, 12;  13, 672, 28 "
+
+scen_sheet <- scenarios %>%
+  transmute(
+    Scenario_name         = Sheet.name,
+    IndividualId          = NA_character_,
+    PopulationId          = NA_character_,
+    ReadPopulationFromCSV = NA_character_,
+    ModelParameterSheets  = paste0('"Global", "', Molecule, "_", Species.label, '"'),
+    ApplicationProtocol   = Sheet.name,
+    SimulationTime        = SIM_TIME,
+    SimulationTimeUnit    = "h",
+    SteadyState           = NA_character_,
+    SteadyStateTime       = NA_character_,
+    SteadyStateTimeUnit   = NA_character_,
+    ModelFile             = PKML.File,
+    OutputPathsIds        = "PVB"
+  )
+
+output_paths <- data.frame(
+  OutputPathId = "PVB",
+  OutputPath   = "Organism|PeripheralVenousBlood|mAb|Plasma (Peripheral Venous Blood)",
+  stringsAsFactors = FALSE
+)
+
+wb_scen <- createWorkbook()
+addWorksheet(wb_scen, "Scenarios")
+writeData(wb_scen, "Scenarios", scen_sheet)
+setColWidths(wb_scen, "Scenarios", cols = 1:13,
+             widths = c(32, 12, 12, 20, 30, 32, 22, 18, 12, 14, 18, 20, 14))
+addWorksheet(wb_scen, "OutputPaths")
+writeData(wb_scen, "OutputPaths", output_paths)
+setColWidths(wb_scen, "OutputPaths", cols = 1:2, widths = c(22, 65))
+
+scen_path <- file.path(confdir, "Scenarios.xlsx")
+safe_save_xlsx(wb_scen, scen_path)
+message("Scenarios.xlsx written: ", nrow(scen_sheet), " scenarios")
+```
+
+```{r v3-verify}
+# ── Verification ──────────────────────────────────────────────────────────────
+conf_files <- c("Applications.xlsx", "ModelParameters.xlsx", "Scenarios.xlsx")
+
+tibble::tibble(
+  File    = conf_files,
+  Exists  = file.exists(file.path(confdir, conf_files)),
+  Size_KB = round(file.size(file.path(confdir, conf_files)) / 1024, 1)
+) %>%
+  knitr::kable(caption = "Configuration files written to Configurations/") %>%
+  kableExtra::kable_styling(bootstrap_options = c("striped", "condensed"),
+                            full_width = FALSE)
+```
+
+

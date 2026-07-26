@@ -1,0 +1,9 @@
+"Drug","AUC_dose_levels","AUC_levels_outside_2fold","Trigger_reduced_PK","Triggering_doses_mgkg","Decision","Probability_within_2fold_at_n3_2 dose groups","Probability_within_2fold_at_n3_3 dose groups","Total_animals_at_n3_2 dose groups","Total_animals_at_n3_3 dose groups"
+"Adalimumab",1,0,FALSE,"","A priori monkey AUC within 2-fold across available doses: reduced PK study may be confirmatory or unnecessary for PK characterization.",NA,NA,NA,NA
+"Atezolizumab",3,1,TRUE,"0.5, 5, 20","A priori AUC outside 2-fold for at least one dose: evaluate reduced sparse monkey PK study.",1,1,6,9
+"Avelumab",1,1,TRUE,"5","A priori AUC outside 2-fold for at least one dose: evaluate reduced sparse monkey PK study.",1,1,6,9
+"Bevacizumab",2,0,FALSE,"","A priori monkey AUC within 2-fold across available doses: reduced PK study may be confirmatory or unnecessary for PK characterization.",NA,NA,NA,NA
+"Golimumab",1,0,FALSE,"","A priori monkey AUC within 2-fold across available doses: reduced PK study may be confirmatory or unnecessary for PK characterization.",NA,NA,NA,NA
+"Nivolumab",2,1,TRUE,"1, 10","A priori AUC outside 2-fold for at least one dose: evaluate reduced sparse monkey PK study.",1,1,6,9
+"Pembrolizumab",3,3,TRUE,"0.3, 3, 30","A priori AUC outside 2-fold for at least one dose: evaluate reduced sparse monkey PK study.",1,1,6,9
+"Tocilizumab",1,0,FALSE,"","A priori monkey AUC within 2-fold across available doses: reduced PK study may be confirmatory or unnecessary for PK characterization.",NA,NA,NA,NA

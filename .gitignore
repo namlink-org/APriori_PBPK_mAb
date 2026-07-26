@@ -16,6 +16,7 @@
 # All intermediate runs are excluded; only the latest reference run is kept.
 Test2/03_Apriori/V2/SimsOutputs/SimulationResults/*/
 !Test2/03_Apriori/V2/SimsOutputs/SimulationResults/2026-06-22 12-42/
+!Test2/03_Apriori/V2/SimsOutputs/SimulationResults/2026-06-18 11-23/
 
 # â”€â”€ Test1 â€” archived prototype, not the active codebase â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 Test1/

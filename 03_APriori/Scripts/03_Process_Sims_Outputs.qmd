@@ -1,0 +1,974 @@
+---
+title: "Process Simulation Outputs"
+author: "NAMLink"
+format:
+  html:
+    code-fold: true
+    code-summary: "Show code"
+    self-contained: true
+---
+
+# Set up
+
+```{r}
+#| label: setup
+#| echo: true
+#| warning: false
+#| message: false
+
+rm(list = ls())
+
+library(tidyverse)
+library(data.table)   # fast I/O (fread) and fast grouped operations
+library(scales)
+library(knitr)
+library(openxlsx)
+library(kableExtra)
+
+# Helper functions -------------------------------------------------------------
+# Keep all local helpers here so this script is stand-alone and does not depend
+# on 00_functions.R.
+
+normalize_species <- function(x) {
+  dplyr::case_when(
+    tolower(x) == "human" ~ "Human",
+    tolower(x) %in% c("nhp", "monkey", "primate") ~ "Monkey",
+    tolower(x) == "rat" ~ "Rat",
+    tolower(x) == "mouse" ~ "Mouse",
+    tolower(x) == "dog" ~ "Dog",
+    TRUE ~ stringr::str_to_title(x)
+  )
+}
+
+parse_scenario <- function(path) {
+  base  <- tools::file_path_sans_ext(basename(path))
+  base  <- sub("_mpk$", "", base)
+  parts <- strsplit(base, "_")[[1]]
+  n     <- length(parts)
+
+  list(
+    Molecule = paste(parts[seq_len(n - 2)], collapse = "_"),
+    Species  = parts[n - 1],
+    Dose     = suppressWarnings(as.numeric(parts[n]))
+  )
+}
+
+trapz_auc <- function(time, conc, t_end = Inf) {
+  keep <- !is.na(time) & !is.na(conc) & conc > 0 & time <= t_end
+  t <- time[keep]
+  c <- conc[keep]
+  if (length(t) < 2) return(NA_real_)
+
+  dt <- diff(t)
+  c1 <- c[-length(c)]
+  c2 <- c[-1]
+
+  # Use log trapezoid on strictly declining segments; linear elsewhere.
+  use_log <- c1 != c2 & c1 > 0 & c2 > 0
+  trap <- ifelse(
+    use_log,
+    dt * (c1 - c2) / log(c1 / c2),
+    dt * (c1 + c2) / 2
+  )
+
+  sum(trap)
+}
+
+mean_or_na <- function(x) {
+  x <- x[is.finite(x)]
+  if (length(x) == 0) NA_real_ else mean(x)
+}
+
+best_terminal_lambda_z <- function(time_h, conc, min_points = 3L) {
+  terminal_data <- tibble(time_h = as.numeric(time_h), conc = as.numeric(conc)) %>%
+    filter(is.finite(time_h), is.finite(conc), conc > 0) %>%
+    group_by(time_h) %>%
+    summarise(conc = mean(conc), .groups = "drop") %>%
+    arrange(time_h)
+
+  if (nrow(terminal_data) < min_points) return(NA_real_)
+
+  tmax_index <- which.max(terminal_data$conc)[1]
+  post_cmax <- terminal_data %>% slice((tmax_index + 1L):n())
+  if (nrow(post_cmax) < min_points) post_cmax <- terminal_data %>% slice(tmax_index:n())
+  if (nrow(post_cmax) < min_points) return(NA_real_)
+
+  x <- post_cmax$time_h
+  y <- log(post_cmax$conc)
+  total_n <- length(x)
+  suffix_sum <- function(z) rev(cumsum(rev(z)))
+  sx <- suffix_sum(x)
+  sy <- suffix_sum(y)
+  sxx <- suffix_sum(x * x)
+  syy <- suffix_sum(y * y)
+  sxy <- suffix_sum(x * y)
+  terminal_n <- seq.int(min_points, total_n)
+  start_index <- total_n - terminal_n + 1L
+  s_xx <- sxx[start_index] - sx[start_index]^2 / terminal_n
+  s_yy <- syy[start_index] - sy[start_index]^2 / terminal_n
+  s_xy <- sxy[start_index] - sx[start_index] * sy[start_index] / terminal_n
+  slope <- s_xy / s_xx
+  r2 <- pmin(pmax((s_xy^2) / (s_xx * s_yy), 0), 1)
+  adj_r2 <- 1 - (1 - r2) * (terminal_n - 1) / (terminal_n - 2)
+
+  candidates <- tibble(slope, adj_r2, terminal_n) %>%
+    filter(is.finite(slope), slope < 0, is.finite(adj_r2)) %>%
+    arrange(desc(adj_r2), desc(terminal_n))
+
+  if (nrow(candidates) == 0) NA_real_ else -candidates$slope[1]
+}
+
+auc_inf_ug_h_ml <- function(time_h, conc, lambda_z) {
+  profile <- tibble(time_h = as.numeric(time_h), conc = as.numeric(conc)) %>%
+    filter(
+      is.finite(time_h), is.finite(conc),
+      time_h >= 0, time_h <= AUC_END_H, conc >= 0
+    ) %>%
+    group_by(time_h) %>%
+    summarise(conc = mean(conc), .groups = "drop") %>%
+    arrange(time_h)
+
+  if (nrow(profile) == 0 || !any(profile$conc > 0) || !is.finite(lambda_z)) {
+    return(NA_real_)
+  }
+  if (!any(profile$time_h == 0)) {
+    profile <- bind_rows(tibble(time_h = 0, conc = 0), profile) %>% arrange(time_h)
+  }
+
+  positive <- profile %>% filter(conc > 0)
+  last_index <- which.max(positive$time_h)
+  c_last <- positive$conc[last_index]
+  last_time <- positive$time_h[last_index]
+  through_last <- profile %>% filter(time_h <= last_time)
+  dt <- diff(through_last$time_h)
+  c1 <- through_last$conc[-nrow(through_last)]
+  c2 <- through_last$conc[-1]
+  declining <- c2 < c1 & c1 > 0 & c2 > 0
+  auc_last <- sum(ifelse(
+    declining,
+    dt * (c1 - c2) / log(c1 / c2),
+    dt * (c1 + c2) / 2
+  ))
+  auc_last + c_last / lambda_z
+}
+
+terminal_clearance_l_day <- function(dose_mg_kg, body_weight_kg, auc_inf) {
+  if (
+    !is.finite(dose_mg_kg) || dose_mg_kg <= 0 ||
+    !is.finite(body_weight_kg) || body_weight_kg <= 0 ||
+    !is.finite(auc_inf) || auc_inf <= 0
+  ) return(NA_real_)
+
+  # ug*h/mL is numerically mg*h/L; multiplying mg/kg by kg gives whole-body mg.
+  24 * dose_mg_kg * body_weight_kg / auc_inf
+}
+
+evaluate_profile_timepoints <- function(time_h, conc) {
+  profile <- tibble(time_h = as.numeric(time_h), conc = as.numeric(conc)) %>%
+    filter(is.finite(time_h), is.finite(conc), time_h >= 0, conc >= 0) %>%
+    group_by(time_h) %>%
+    summarise(conc = mean(conc), .groups = "drop") %>%
+    arrange(time_h)
+
+  if (nrow(profile) == 0) {
+    return(tibble(Eval_Time_h = PROFILE_TIMEPOINTS_H, Eval_Conc_ug_mL = NA_real_))
+  }
+  if (!any(profile$time_h == 0)) {
+    profile <- bind_rows(tibble(time_h = 0, conc = 0), profile) %>% arrange(time_h)
+  }
+
+  interpolate_one <- function(target_h) {
+    exact <- which(abs(profile$time_h - target_h) < 1e-10)
+    if (length(exact) > 0) return(profile$conc[exact[1]])
+    if (target_h < min(profile$time_h) || target_h > max(profile$time_h)) return(NA_real_)
+
+    lower <- max(which(profile$time_h < target_h))
+    upper <- min(which(profile$time_h > target_h))
+    t1 <- profile$time_h[lower]
+    t2 <- profile$time_h[upper]
+    c1 <- profile$conc[lower]
+    c2 <- profile$conc[upper]
+    fraction <- (target_h - t1) / (t2 - t1)
+
+    if (c1 > 0 && c2 > 0) {
+      exp(log(c1) + fraction * (log(c2) - log(c1)))
+    } else {
+      c1 + fraction * (c2 - c1)
+    }
+  }
+
+  tibble(
+    Eval_Time_h = PROFILE_TIMEPOINTS_H,
+    Eval_Conc_ug_mL = map_dbl(PROFILE_TIMEPOINTS_H, interpolate_one)
+  )
+}
+
+fmt_fe <- function(x) {
+  cell_spec(
+    ifelse(is.finite(x), formatC(x, format = "f", digits = 2), ""),
+    background = ifelse(!is.finite(x), "#FFFFFF", ifelse(x >= 0.5 & x <= 2.0, "#d4edda", "#f8d7da")),
+    color      = ifelse(!is.finite(x), "#000000", ifelse(x >= 0.5 & x <= 2.0, "#155724", "#721c24")),
+    bold       = TRUE
+  )
+}
+
+render_metrics_kbl <- function(df, caption) {
+  df_fmt <- df %>%
+    mutate(
+      `Obs Cmax (µg/mL)`   = round(Obs_Cmax, 1),
+      `Pred Cmax (µg/mL)`  = round(Pred_Cmax, 1),
+      `FE Cmax`            = map_chr(FE_Cmax, fmt_fe),
+      `Obs AUC (µg·h/mL)`  = round(Obs_AUC,  0),
+      `Pred AUC (µg·h/mL)` = round(Pred_AUC, 0),
+      `FE AUC`             = map_chr(FE_AUC,  fmt_fe)
+    ) %>%
+    select(
+      Molecule, `Dose (mg/kg)` = Dose,
+      `Obs Cmax (µg/mL)`, `Pred Cmax (µg/mL)`, `FE Cmax`,
+      `Obs AUC (µg·h/mL)`, `Pred AUC (µg·h/mL)`, `FE AUC`
+    )
+
+  df_fmt %>%
+    kbl(
+      escape  = FALSE,
+      align   = c("l", "r", "r", "r", "c", "r", "r", "c"),
+      caption = caption
+    ) %>%
+    kable_styling(
+      bootstrap_options = c("striped", "hover", "condensed"),
+      full_width = FALSE,
+      font_size  = 13
+    ) %>%
+    column_spec(5, width = "5em") %>%
+    column_spec(8, width = "5em") %>%
+    pack_rows(index = setNames(
+      rle(df$Molecule)$lengths,
+      rle(df$Molecule)$values
+    ))
+}
+
+read_target_lookup <- function(files) {
+  read_one_sheet <- function(file, sheet) {
+    x <- openxlsx::read.xlsx(file, sheet = sheet, check.names = FALSE)
+    names(x) <- trimws(names(x))
+    names_norm <- names(x) %>%
+      tolower() %>%
+      gsub("[^a-z0-9]+", " ", .) %>%
+      trimws()
+
+    molecule_col <- names(x)[match("drug name", names_norm)]
+    target_col   <- names(x)[match("target name", names_norm)]
+
+    if (is.na(molecule_col) || is.na(target_col)) {
+      return(NULL)
+    }
+
+    x %>%
+      transmute(
+        Molecule = trimws(as.character(.data[[molecule_col]])),
+        Target   = trimws(as.character(.data[[target_col]]))
+      ) %>%
+      filter(
+        !is.na(Molecule), Molecule != "",
+        !is.na(Target), Target != ""
+      ) %>%
+      distinct(Molecule, Target)
+  }
+
+  purrr::map_dfr(files, function(file) {
+    purrr::map_dfr(openxlsx::getSheetNames(file), function(sheet) {
+      read_one_sheet(file, sheet)
+    })
+  }) %>%
+    distinct(Molecule, .keep_all = TRUE)
+}
+
+add_target <- function(df, lookup = target_lookup) {
+  df %>%
+    left_join(lookup, by = "Molecule") %>%
+    mutate(Target = coalesce(Target, "Target not specified"))
+}
+
+render_metrics_kbl <- function(df, caption) {
+  df_fmt <- df %>%
+    arrange(Target, Molecule, Dose) %>%
+    mutate(
+      Target_display       = if_else(!duplicated(Target), Target, ""),
+      Molecule_display     = if_else(!duplicated(paste(Target, Molecule)), Molecule, ""),
+      `Generic BW (kg)`    = round(BW_kg, 1),
+      `Obs Cmax (ug/mL)`   = round(Obs_Cmax, 1),
+      `Pred Cmax (ug/mL)`  = round(Pred_Cmax, 1),
+      `FE Cmax`            = map_chr(FE_Cmax, fmt_fe),
+      `Obs AUC0-28d (ug*h/mL)`  = round(Obs_AUC,  0),
+      `Pred AUC0-28d (ug*h/mL)` = round(Pred_AUC, 0),
+      `FE AUC0-28d`             = map_chr(FE_AUC,  fmt_fe),
+      `Obs AUCinf (ug*h/mL)` = round(Obs_AUCinf, 0),
+      `Pred AUCinf (ug*h/mL)` = round(Pred_AUCinf, 0),
+      `FE AUCinf` = map_chr(FE_AUCinf, fmt_fe),
+      `Obs terminal CL (L/day)` = round(Obs_CL_L_day, 3),
+      `Pred terminal CL (L/day)` = round(Pred_CL_L_day, 3),
+      `FE terminal CL` = map_chr(FE_CL, fmt_fe),
+      `Obs mean profile conc (ug/mL)` = round(Obs_mean_profile_conc, 2),
+      `Pred mean profile conc (ug/mL)` = round(Pred_mean_profile_conc, 2),
+      `Mean pointwise FE` = map_chr(Mean_pointwise_FE, fmt_fe),
+      `GOF timepoints (n)` = GOF_timepoints_n
+    ) %>%
+    select(
+      Target = Target_display, Molecule = Molecule_display, `Dose (mg/kg)` = Dose,
+      `Generic BW (kg)`,
+      `Obs Cmax (ug/mL)`, `Pred Cmax (ug/mL)`, `FE Cmax`,
+      `Obs AUC0-28d (ug*h/mL)`, `Pred AUC0-28d (ug*h/mL)`, `FE AUC0-28d`,
+      `Obs AUCinf (ug*h/mL)`, `Pred AUCinf (ug*h/mL)`, `FE AUCinf`,
+      `Obs terminal CL (L/day)`, `Pred terminal CL (L/day)`, `FE terminal CL`,
+      `Obs mean profile conc (ug/mL)`, `Pred mean profile conc (ug/mL)`,
+      `Mean pointwise FE`, `GOF timepoints (n)`
+    )
+
+  df_fmt %>%
+    kbl(
+      escape  = FALSE,
+      align   = c("l", "l", "r", "r", "r", "r", "c", "r", "r", "c", "r", "r", "c", "r", "r", "c", "r", "r", "c", "r"),
+      caption = caption
+    ) %>%
+    kable_styling(
+      bootstrap_options = c("striped", "hover", "condensed"),
+      full_width = FALSE,
+      font_size  = 13
+    ) %>%
+    column_spec(7, width = "5em") %>%
+    column_spec(10, width = "5em") %>%
+    column_spec(13, width = "5em") %>%
+    column_spec(16, width = "5em") %>%
+    column_spec(19, width = "5em")
+}
+
+datadir  <- "../../01_Data/"
+results_dir <- "../SimsOutputs/SimulationResults/"
+figures_dir <- "../SimsOutputs/Figures"
+
+# AUC integration window: 28 days in hours
+AUC_END_H <- 28 * 24   # 672 h
+PROFILE_TIMEPOINTS_H <- c(0, 0.25, 1, 2, 4, 6, 12, 24, 48, 96, 168, 336, 504)
+
+# Generic species body weights used for all whole-animal clearance calculations.
+# Individual/subject-specific weights are intentionally not used.
+SPECIES_BW_KG <- c(Monkey = 3.5, Human = 70)
+
+target_lookup <- read_target_lookup(c(
+  file.path(datadir, "Monkey", "Parameters.xlsx"),
+  file.path(datadir, "Human", "Parameters_human.xlsx")
+))
+```
+
+# Load data
+
+## Observed data
+
+```{r}
+#| label: load-obs
+#| message: false
+
+obs_raw <- read.csv(
+  file.path(datadir, "Monkey", "mAb_data_clean.csv"),
+  stringsAsFactors = FALSE,
+  check.names      = FALSE
+)
+
+# Normalise species labels to match simulation scenario naming convention,
+# convert time to hours, and keep only quantifiable rows
+obs <- obs_raw %>%
+  mutate(
+    Species   = normalize_species(Species),
+    Time_h    = case_when(
+      tolower(trimws(Time.unit)) %in% c("h", "hr", "hour", "hours") ~ as.numeric(Time),
+      TRUE ~ as.numeric(Time) / 60
+    ),
+    Conc_ugmL = as.numeric(Measurement)   # already in µg/mL
+  ) %>%
+  filter(!is.na(Conc_ugmL), Conc_ugmL > 0) %>%
+  filter(Time_h <= 672)
+
+# ── Human observed data (kept separate — not combined with monkey) ────────
+obs_human_raw <- read.csv(
+  file.path(datadir, "Human", "mAb_data_human.csv"),
+  stringsAsFactors = FALSE, check.names = FALSE
+)
+
+obs_human <- obs_human_raw %>%
+  mutate(
+    Species   = normalize_species(Species),
+    Time_h    = case_when(
+      tolower(trimws(Time.unit)) %in% c("h", "hr", "hour", "hours") ~ as.numeric(Time),
+      TRUE ~ as.numeric(Time) / 60
+    ),
+    Conc_ugmL = as.numeric(Measurement)
+  ) %>%
+  filter(!is.na(Conc_ugmL), Conc_ugmL > 0) %>%
+  # Exclude SC routes — IV model cannot be compared against subcutaneous data
+  filter(!grepl("^SC$", trimws(Route), ignore.case = TRUE)) %>%
+  filter(Time_h <= AUC_END_H)
+
+# MW lookup: used for unit conversion of simulation output (µmol/L → µg/mL).
+# Built from both CSVs so that Golimumab (monkey-only observed) and all human
+# drugs are covered.
+mw_lookup <- bind_rows(
+  obs_raw       %>% distinct(Molecule, MW = Molecular.Weight),
+  obs_human_raw %>% distinct(Molecule, MW = Molecular.Weight)
+) %>%
+  mutate(MW = as.numeric(MW)) %>%
+  distinct(Molecule, .keep_all = TRUE)
+```
+
+## Simulation results — latest run
+
+```{r}
+#| label: load-sims
+#| message: false
+
+# ── Auto-select the most recently modified results sub-folder ─────────────
+sim_folders <- list.dirs(results_dir, recursive = FALSE, full.names = TRUE)
+if (length(sim_folders) == 0) stop("No results folders found in: ", results_dir)
+
+latest_dir <- sim_folders[which.max(file.mtime(sim_folders))]
+message("Results folder: ", latest_dir)
+
+# ── List scenario CSVs (exclude _population parameter files) ──────────────
+csv_files <- list.files(latest_dir, pattern = "\\.csv$", full.names = TRUE)
+csv_files <- csv_files[!grepl("_population\\.csv$", csv_files)]
+message(length(csv_files), " scenario CSV files found")
+
+# ── Read CSVs ─────────────────────────────────────────────────────────────
+# Expected columns: IndividualId | Time [min] | {OutputPath} [µmol/l]
+# Unit conversion: µmol/L × MW (g/mol) / 1000 = µg/mL
+
+# Function defined outside the loop so it can be exported to parallel workers
+read_one_csv <- function(f) {
+  meta <- parse_scenario(f)
+
+  df <- tryCatch(
+    data.table::fread(f, data.table = TRUE),
+    error = function(e) NULL
+  )
+  if (is.null(df)) return(NULL)
+
+  conc_col <- grep("PeripheralVenousBlood.*Plasma.*\\[", names(df), value = TRUE)
+  conc_col <- conc_col[grepl("\\|mAb\\|", conc_col)]
+  if (length(conc_col) == 0) return(NULL)
+  conc_col <- conc_col[1]
+
+  mw_val <- mw_lookup$MW[mw_lookup$Molecule == meta$Molecule]
+  if (length(mw_val) == 0 || is.na(mw_val[1])) return(NULL)
+
+  df[, .(
+    Molecule     = meta$Molecule,
+    Species      = meta$Species,
+    Dose         = meta$Dose,
+    IndividualId = as.integer(IndividualId),
+    Time_h       = as.numeric(`Time [min]`) / 60,
+    Conc_ugmL    = as.numeric(.SD[[conc_col]]) * mw_val[1] / 1000
+  ), .SDcols = conc_col[1]]
+}
+
+# Parallel CSV reading — uses a socket cluster (works on Windows).
+# Falls back to sequential if only 1 logical core is available.
+n_cores <- min(length(csv_files), max(1L, parallel::detectCores() - 1L))
+message("Reading ", length(csv_files), " scenario CSV(s) with ", n_cores, " core(s)")
+
+if (n_cores > 1) {
+  cl <- parallel::makeCluster(n_cores)
+  parallel::clusterExport(cl, varlist = c("parse_scenario", "mw_lookup", "read_one_csv"),
+                          envir = environment())
+  parallel::clusterEvalQ(cl, library(data.table))
+  sim_list <- parallel::parLapply(cl, csv_files, read_one_csv)
+  parallel::stopCluster(cl)
+} else {
+  sim_list <- lapply(csv_files, read_one_csv)
+}
+
+sim <- data.table::rbindlist(Filter(Negate(is.null), sim_list))
+
+if (nrow(sim) == 0) {
+  stop(
+    "No concentration data found in any scenario CSV.\n\n",
+    "Likely cause: the OutputPath in Scenarios.xlsx references the molecule\n",
+    "name (e.g. 'Atezolizumab') but the .pkml model uses a different name internally.\n\n",
+    "Fix: update the OutputPaths sheet to use the correct path and re-run 02_Run_Sims.qmd."
+  )
+}
+
+n_scen <- sim[, .N, by = .(Molecule, Species, Dose)][, .N]
+message("Loaded ", n_scen, " scenarios | ",
+        uniqueN(sim$IndividualId), " individuals per scenario")
+```
+
+# Summarise for plotting
+
+```{r}
+#| label: summarise
+#| message: false
+#| warning: false
+
+# ── Simulated: 5th / 50th / 95th percentile per time point ────────────────
+# data.table grouped operation is 5–20× faster than dplyr on large tables
+sim_summary <- sim[, .(
+  Pred_p05 = quantile(Conc_ugmL, 0.05, na.rm = TRUE),
+  Pred_med = quantile(Conc_ugmL, 0.50, na.rm = TRUE),
+  Pred_p95 = quantile(Conc_ugmL, 0.95, na.rm = TRUE)
+), by = .(Molecule, Species, Dose, Time_h)]
+
+# ── Observed: mean ± SD per group / time point ────────────────────────────
+summarise_obs <- function(df) {
+  df %>%
+    group_by(Molecule, Species, Dose, Time_h) %>%
+    summarise(
+      Obs_mean = mean(Conc_ugmL, na.rm = TRUE),
+      Obs_sd   = sd(Conc_ugmL,   na.rm = TRUE),
+      n        = n(),
+      .groups  = "drop"
+    ) %>%
+    mutate(
+      Obs_lo = pmax(Obs_mean - Obs_sd, 1e-4),
+      Obs_hi = Obs_mean + Obs_sd
+    )
+}
+
+obs_summary       <- summarise_obs(obs)
+obs_human_summary <- summarise_obs(obs_human)
+
+# Combined only for plotting (both species appear in the same figure per drug)
+obs_all_summary <- bind_rows(obs_summary, obs_human_summary)
+
+sim_summary <- sim_summary %>%
+  as_tibble() %>%
+  add_target() %>%
+  arrange(Target, Molecule, Species, Dose, Time_h) %>%
+  mutate(
+    Molecule = factor(Molecule, levels = unique(Molecule)),
+    Facet    = factor(paste(Target, Molecule, sep = " | "),
+                      levels = unique(paste(Target, Molecule, sep = " | ")))
+  )
+
+obs_all_summary <- obs_all_summary %>%
+  add_target() %>%
+  arrange(Target, Molecule, Species, Dose, Time_h) %>%
+  mutate(
+    Molecule = factor(Molecule, levels = levels(sim_summary$Molecule)),
+    Facet    = factor(paste(Target, Molecule, sep = " | "),
+                      levels = levels(sim_summary$Facet))
+  )
+```
+
+# PK profiles: observed vs simulated
+
+One figure per species; panels = molecules; colour = dose.
+
+```{r}
+#| label: pk-plots
+#| fig-width: 10
+#| fig-height: 4.5
+#| message: false
+
+molecules <- character(0)
+
+pk_plots <- lapply(molecules, function(mol) {
+
+  sim_mol <- sim_summary[Molecule == mol]   # data.table subset
+  obs_mol <- filter(obs_all_summary, Molecule == mol)
+
+  p <- ggplot() +
+
+    # Prediction uncertainty ribbon (5th–95th percentile)
+    geom_ribbon(
+      data  = sim_mol,
+      aes(x = Time_h, ymin = Pred_p05, ymax = Pred_p95, fill = factor(Dose)),
+      alpha = 0.18
+    ) +
+
+    # Predicted median line
+    geom_line(
+      data      = sim_mol,
+      aes(x = Time_h, y = Pred_med, colour = factor(Dose)),
+      linewidth = 0.9
+    ) +
+
+    # Observed mean points
+    geom_point(
+      data  = obs_mol,
+      aes(x = Time_h, y = Obs_mean, colour = factor(Dose)),
+      shape = 16, size = 2.3
+    ) +
+
+    # Observed ± SD error bars
+    geom_errorbar(
+      data      = filter(obs_mol, !is.na(Obs_sd) & n > 1),
+      aes(x = Time_h, ymin = Obs_lo, ymax = Obs_hi, colour = factor(Dose)),
+      width     = 0.8, linewidth = 0.45
+    ) +
+
+    facet_wrap(~ Species, scales = "free_x") +
+    scale_y_log10(limits = c(0.1, NA), 
+      labels = label_number(drop0trailing = TRUE),
+      breaks = 10^seq(-2, 4)
+    ) +
+    scale_colour_viridis_d(name = "Dose (mg/kg)", option = "D", end = 0.88) +
+    scale_fill_viridis_d(name   = "Dose (mg/kg)", option = "D", end = 0.88) +
+    labs(
+      title    = mol,
+      subtitle = "Lines = simulated |  Points = observed",
+      x        = "Time (h)",
+      y        = "Plasma Concentration (µg/mL)"
+    ) +
+    theme_bw(base_size = 12) +
+    theme(
+      strip.background = element_rect(fill = "grey93"),
+      strip.text       = element_text(face = "bold"),
+      legend.position  = "bottom",
+      panel.grid.minor = element_blank()
+    )
+
+  ggsave(
+    file.path(figures_dir, paste0("PK_ObsPred_", mol, ".png")),
+    p, width = 10, height = 4.5, dpi = 150
+  )
+  message("Saved plot: ", mol)
+  p
+})
+
+names(pk_plots) <- molecules
+pk_plots
+
+old_pk_plots <- list.files(
+  figures_dir,
+  pattern = "^PK_ObsPred_.*\\.png$",
+  full.names = TRUE
+)
+old_pk_plots <- old_pk_plots[
+  !basename(old_pk_plots) %in% c("PK_ObsPred_Monkey.png", "PK_ObsPred_Human.png")
+]
+if (length(old_pk_plots) > 0) unlink(old_pk_plots)
+
+plot_species_pk <- function(species_label) {
+  sim_species <- sim_summary %>%
+    filter(Species == species_label, Time_h <= AUC_END_H)
+
+  obs_species <- obs_all_summary %>%
+    filter(Species == species_label, Time_h <= AUC_END_H)
+
+  p <- ggplot() +
+    geom_ribbon(
+      data  = sim_species,
+      aes(x = Time_h, ymin = Pred_p05, ymax = Pred_p95, fill = factor(Dose)),
+      alpha = 0.18
+    ) +
+    geom_line(
+      data      = sim_species,
+      aes(x = Time_h, y = Pred_med, colour = factor(Dose)),
+      linewidth = 0.8
+    ) +
+    geom_point(
+      data  = obs_species,
+      aes(x = Time_h, y = Obs_mean, colour = factor(Dose)),
+      shape = 16, size = 1.7
+    ) +
+    geom_errorbar(
+      data      = filter(obs_species, !is.na(Obs_sd) & n > 1),
+      aes(x = Time_h, ymin = Obs_lo, ymax = Obs_hi, colour = factor(Dose)),
+      width     = 0.8, linewidth = 0.35
+    ) +
+    facet_wrap(~ Facet, scales = "free_y", ncol = 3) +
+    scale_x_continuous(
+      limits = c(0, AUC_END_H),
+      breaks = seq(0, AUC_END_H, by = 168),
+      labels = function(x) x / 24
+    ) +
+    scale_y_log10(
+      limits = c(0.1, NA),
+      labels = label_number(drop0trailing = TRUE),
+      breaks = 10^seq(-2, 4)
+    ) +
+    scale_colour_viridis_d(name = "Dose (mg/kg)", option = "D", end = 0.88) +
+    scale_fill_viridis_d(name   = "Dose (mg/kg)", option = "D", end = 0.88) +
+    labs(
+      title    = paste(species_label, "PK profiles"),
+      subtitle = "Lines = simulated | Points = observed",
+      x        = "Time post dose (days)",
+      y        = "Plasma Concentration (ug/mL)"
+    ) +
+    theme_bw(base_size = 11) +
+    theme(
+      strip.background = element_rect(fill = "grey93"),
+      strip.text       = element_text(face = "bold", size = 8),
+      legend.position  = "bottom",
+      panel.grid.minor = element_blank()
+    )
+
+  outfile <- file.path(figures_dir, paste0("PK_ObsPred_", species_label, ".png"))
+  ggsave(outfile, p, width = 12, height = 8, dpi = 150)
+  message("Saved plot: ", outfile)
+  p
+}
+
+pk_plots <- list(
+  Monkey = plot_species_pk("Monkey"),
+  Human  = plot_species_pk("Human")
+)
+
+pk_plots
+```
+
+# PK metrics: C~max~, AUC~0–28d~, AUC~inf~, clearance, and profile goodness of fit
+
+AUC is integrated by the linear-log trapezoidal rule over 0 –
+`r AUC_END_H` h (28 days). For observed subjects the integral is
+truncated at their last measured time point when that falls before 672 h.
+The terminal phase is selected from consecutive post-Cmax suffixes using the
+largest adjusted R-squared. Terminal clearance uses
+`AUCinf = AUClast + Clast/lambda_z` and
+`24 * Dose (mg/kg) * generic species BW (kg) / AUCinf`. Clearance is reported
+in L/day per whole animal/human. Generic BW is 3.5 kg for monkey and 70 kg for
+human; individual or subject weights are not used. Concentrations are evaluated
+at 0, 0.25, 1, 2, 4, 6, 12, 24, 48, 96, 168, 336, and 504 h by exact matching
+or linear-up/log-linear interpolation. The whole-profile goodness of fit is the
+arithmetic mean of the predicted/observed fold errors at common positive
+observed timepoints. Fold errors within 0.5–2.0 are highlighted green.
+
+```{r}
+#| label: pk-metrics
+#| message: false
+#| warning: false
+
+# ── Simulated metrics: fully vectorised — no per-group R function calls ────
+# Sort once, then compute lead/lag differences across all groups simultaneously.
+# This replaces thousands of trapz_auc() dispatches with three data.table ops.
+setorder(sim, Molecule, Species, Dose, IndividualId, Time_h)
+
+sim <- sim %>%
+  group_by(Molecule, Species, Dose, IndividualId) %>%
+  mutate(
+    dt_h = Time_h - lag(Time_h),
+    c_lag = lag(Conc_ugmL)
+  ) %>%
+  ungroup()  %>%
+  mutate(
+    trap = case_when(
+      is.na(dt_h) | dt_h <= 0 |
+        is.na(c_lag) | c_lag <= 0 |
+        Conc_ugmL <= 0 ~ 0,
+
+      c_lag != Conc_ugmL ~
+        dt_h * (c_lag - Conc_ugmL) / log(c_lag / Conc_ugmL),
+
+      TRUE ~
+        dt_h * (c_lag + Conc_ugmL) / 2
+    ))
+
+sim_metrics <- sim %>%
+  filter(Time_h <= AUC_END_H) %>%
+  group_by(Molecule, Species, Dose, IndividualId) %>%
+  summarise(
+    Pred_AUC  = sum(trap, na.rm = TRUE),
+    Pred_Cmax = max(Conc_ugmL, na.rm = TRUE),
+    BW_kg = unname(SPECIES_BW_KG[Species[1]]),
+    Pred_lambda_z_1_h = best_terminal_lambda_z(Time_h, Conc_ugmL),
+    Pred_AUCinf = auc_inf_ug_h_ml(Time_h, Conc_ugmL, Pred_lambda_z_1_h),
+    Pred_CL_L_day = terminal_clearance_l_day(Dose[1], BW_kg[1], Pred_AUCinf),
+    .groups = "drop"
+  ) %>%
+  group_by(Molecule, Species, Dose) %>%
+  summarise(
+    Pred_AUC  = mean(Pred_AUC, na.rm = TRUE),
+    Pred_Cmax = mean(Pred_Cmax, na.rm = TRUE),
+    BW_kg = first(BW_kg),
+    Pred_AUCinf = mean_or_na(Pred_AUCinf),
+    Pred_CL_L_day = mean_or_na(Pred_CL_L_day),
+    .groups = "drop"
+  )
+
+sim <- sim %>%
+  select(-dt_h, -c_lag, -trap)
+
+# ── Observed metrics helper: per subject → group mean ────────────────────
+compute_obs_metrics <- function(df) {
+  df %>%
+    group_by(Molecule, Species, Dose, Subject.Id) %>%
+    summarise(
+      Obs_AUC  = trapz_auc(Time_h, Conc_ugmL, t_end = AUC_END_H),
+      Obs_Cmax = max(Conc_ugmL, na.rm = TRUE),
+      BW_kg = unname(SPECIES_BW_KG[Species[1]]),
+      Obs_lambda_z_1_h = best_terminal_lambda_z(Time_h, Conc_ugmL),
+      Obs_AUCinf = auc_inf_ug_h_ml(Time_h, Conc_ugmL, Obs_lambda_z_1_h),
+      Obs_CL_L_day = terminal_clearance_l_day(Dose[1], BW_kg[1], Obs_AUCinf),
+      .groups  = "drop"
+    ) %>%
+    group_by(Molecule, Species, Dose) %>%
+    summarise(
+      Obs_Cmax = mean(Obs_Cmax, na.rm = TRUE),
+      Obs_AUC  = mean(Obs_AUC,  na.rm = TRUE),
+      BW_kg = first(BW_kg),
+      Obs_AUCinf = mean_or_na(Obs_AUCinf),
+      Obs_CL_L_day = mean_or_na(Obs_CL_L_day),
+      .groups  = "drop"
+    )
+}
+
+obs_metrics       <- compute_obs_metrics(obs)
+obs_human_metrics <- compute_obs_metrics(obs_human)
+
+sim_profile_timepoints <- sim %>%
+  filter(Time_h <= max(PROFILE_TIMEPOINTS_H)) %>%
+  group_by(Molecule, Species, Dose, IndividualId) %>%
+  group_modify(~ evaluate_profile_timepoints(.x$Time_h, .x$Conc_ugmL)) %>%
+  ungroup() %>%
+  group_by(Molecule, Species, Dose, Eval_Time_h) %>%
+  summarise(Pred_Eval_Conc = mean_or_na(Eval_Conc_ug_mL), .groups = "drop")
+
+compute_obs_profile_timepoints <- function(df) {
+  df %>%
+    filter(Time_h <= max(PROFILE_TIMEPOINTS_H)) %>%
+    group_by(Molecule, Species, Dose, Subject.Id) %>%
+    group_modify(~ evaluate_profile_timepoints(.x$Time_h, .x$Conc_ugmL)) %>%
+    ungroup() %>%
+    group_by(Molecule, Species, Dose, Eval_Time_h) %>%
+    summarise(Obs_Eval_Conc = mean_or_na(Eval_Conc_ug_mL), .groups = "drop")
+}
+
+obs_profile_timepoints <- bind_rows(
+  compute_obs_profile_timepoints(obs),
+  compute_obs_profile_timepoints(obs_human)
+)
+
+profile_gof <- full_join(
+  obs_profile_timepoints,
+  sim_profile_timepoints,
+  by = c("Molecule", "Species", "Dose", "Eval_Time_h")
+) %>%
+  group_by(Molecule, Species, Dose) %>%
+  summarise(
+    Obs_mean_profile_conc = mean_or_na(Obs_Eval_Conc),
+    Pred_mean_profile_conc = mean_or_na(Pred_Eval_Conc),
+    GOF_timepoints_n = sum(
+      is.finite(Obs_Eval_Conc) & Obs_Eval_Conc > 0 & is.finite(Pred_Eval_Conc)
+    ),
+    Mean_pointwise_FE = mean_or_na(if_else(
+      is.finite(Obs_Eval_Conc) & Obs_Eval_Conc > 0 & is.finite(Pred_Eval_Conc),
+      Pred_Eval_Conc / Obs_Eval_Conc,
+      NA_real_
+    )),
+    .groups = "drop"
+  )
+
+compute_fe <- function(obs_m, sim_m) {
+  full_join(
+    as.data.frame(obs_m),
+    as.data.frame(sim_m),
+    by = c("Molecule", "Species", "Dose")
+  ) %>%
+    mutate(
+      BW_kg = coalesce(BW_kg.x, BW_kg.y),
+      FE_Cmax = round(Pred_Cmax / Obs_Cmax, 2),
+      FE_AUC  = round(Pred_AUC  / Obs_AUC,  2),
+      FE_AUCinf = round(Pred_AUCinf / Obs_AUCinf, 2),
+      FE_CL = round(Pred_CL_L_day / Obs_CL_L_day, 2)
+    ) %>%
+    select(-BW_kg.x, -BW_kg.y) %>%
+    left_join(profile_gof, by = c("Molecule", "Species", "Dose")) %>%
+    add_target() %>%
+    arrange(Target, Molecule, Dose)
+}
+
+# Monkey and human joined separately — no cross-species contamination
+sim_metrics_monkey <- sim_metrics %>% filter(Species == "Monkey")
+sim_metrics_human  <- sim_metrics %>% filter(Species == "Human")
+
+metrics_tbl       <- compute_fe(obs_metrics,       sim_metrics_monkey)
+human_metrics_tbl <- compute_fe(obs_human_metrics, sim_metrics_human)
+```
+
+```{r}
+#| label: metrics-table-nhp
+
+metrics_tbl %>%
+  render_metrics_kbl(paste("Monkey PK Metrics — Cmax, AUC0-28d, AUCinf, clearance, and profile goodness of fit;",
+                     paste0("AUC integrated over 0–", AUC_END_H, " h (28 days).
+                            FE = Predicted / Observed.")
+))
+```
+
+## Human — observed vs predicted PK metrics
+
+Fold errors are shown for scenarios where observed human data is available at a
+matching dose. Rows without observed data are shown as a priori predictions only.
+Note: Pembrolizumab observed data begins at day 19 (457 h) so AUC fold error is
+not meaningful (partial AUC only). Adalimumab IV data is from Broeder 2001 Fig 1
+(0.5, 1, 3, 5, 10 mg/kg IV single dose); SC data excluded from comparison.
+
+```{r}
+#| label: metrics-table-human
+
+if (nrow(human_metrics_tbl) > 0) {
+  render_metrics_kbl(
+    human_metrics_tbl,
+    paste("Human PK Metrics — Cmax, AUC0-28d, AUCinf, clearance, and profile goodness of fit.",
+          "FE = Predicted / Observed.")
+  )
+}
+
+if (nrow(human_metrics_tbl) == 0) message("No human simulation results found.")
+```
+
+## Export to Excel
+
+```{r}
+#| label: save-metrics
+#| message: false
+#| output: false
+
+metrics_out <- bind_rows(metrics_tbl, human_metrics_tbl) %>%
+  arrange(Species, Target, Molecule, Dose) %>%
+  relocate(Species, Target, Molecule, Dose) %>%
+  rename(
+    `Dose (mg/kg)`       = Dose,
+    `Generic BW (kg)`    = BW_kg,
+    `Obs Cmax (ug/mL)`   = Obs_Cmax,
+    `Pred Cmax (ug/mL)`  = Pred_Cmax,
+    `Fold Error Cmax`    = FE_Cmax,
+    `Obs AUC0-28d (ug*h/mL)`  = Obs_AUC,
+    `Pred AUC0-28d (ug*h/mL)` = Pred_AUC,
+    `Fold Error AUC0-28d`     = FE_AUC,
+    `Obs AUCinf (ug*h/mL)` = Obs_AUCinf,
+    `Pred AUCinf (ug*h/mL)` = Pred_AUCinf,
+    `Fold Error AUCinf` = FE_AUCinf,
+    `Obs terminal CL (L/day)` = Obs_CL_L_day,
+    `Pred terminal CL (L/day)` = Pred_CL_L_day,
+    `Fold Error terminal CL` = FE_CL,
+    `Obs mean profile conc (ug/mL)` = Obs_mean_profile_conc,
+    `Pred mean profile conc (ug/mL)` = Pred_mean_profile_conc,
+    `Mean pointwise fold error` = Mean_pointwise_FE,
+    `GOF timepoints (n)` = GOF_timepoints_n
+  ) %>%
+  select(
+    Species, Target, Molecule, `Dose (mg/kg)`, `Generic BW (kg)`,
+    `Obs Cmax (ug/mL)`, `Pred Cmax (ug/mL)`, `Fold Error Cmax`,
+    `Obs AUC0-28d (ug*h/mL)`, `Pred AUC0-28d (ug*h/mL)`, `Fold Error AUC0-28d`,
+    `Obs AUCinf (ug*h/mL)`, `Pred AUCinf (ug*h/mL)`, `Fold Error AUCinf`,
+    `Obs terminal CL (L/day)`, `Pred terminal CL (L/day)`, `Fold Error terminal CL`,
+    `Obs mean profile conc (ug/mL)`, `Pred mean profile conc (ug/mL)`,
+    `Mean pointwise fold error`, `GOF timepoints (n)`
+  ) %>%
+  mutate(across(where(is.numeric), ~ round(.x, 2)))
+
+wb <- createWorkbook()
+for (species_label in c("Monkey", "Human")) {
+  sheet_name <- paste0(species_label, "_Metrics")
+  species_out <- metrics_out %>% filter(Species == species_label)
+  addWorksheet(wb, sheet_name)
+  writeData(wb, sheet_name, species_out)
+  setColWidths(wb, sheet_name, cols = seq_len(ncol(species_out)), widths = "auto")
+}
+
+out_xlsx <- file.path(figures_dir, "PK_Metrics_ObsPred.xlsx")
+saveWorkbook(wb, out_xlsx, overwrite = TRUE)
+message("Saved: ", out_xlsx)
+```
+
+

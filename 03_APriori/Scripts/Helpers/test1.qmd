@@ -1,0 +1,417 @@
+---
+title: "test"
+format: html
+editor: visual
+---
+  
+
+# Set-up
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+
+rm(list=ls())
+
+library(readxl)
+library(readr)
+library(writexl)
+library(openxlsx)
+library(dplyr)
+library(purrr)
+library(ggplot2)
+# library(ospsuite.utils)
+# library(ospsuite)
+library(esqlabsR)
+
+# projpath <-  "G:/My Drive/Modeling_Projects/HT-PBPK/Preclinical_Study_Simulator/02_Scripts/"
+# configurationPath <- file.path(projpath, "../ProjectConfiguration.xlsx")
+# configurationFolderPath <- file.path(projpath, "../Configurations/")
+```
+
+
+#  (NOTE this is for a different type of molecule, not mAb, so parameters are different.)
+
+## User Inputs
+```{r}
+#| echo: true
+#| warning: false
+#| message: false
+
+## Input parameters
+MoleculeId = "Test"
+Lipophilicity = 1 #logunits
+fu = 0.1 # plasma (fraction)
+MW = 100  # g/mol
+pKa = 10 # Acid
+`Solubility at Ref pH` = 10000 # mg/L
+`Ref pH` = 7.4
+`Specific Intestinal Permeability` = 1E-05 # cm/min
+`Liver Plasma Clearance- Dog` = 0.01 # mL/min/kg (dog, human)
+`Liver Plasma Clearance- Human` = 0.01 # mL/min/kg (dog, human)
+`Liver Plasma Clearance - Mouse` = 30 # mL/min/kg (mouse, rat)
+`Liver Plasma Clearance - Rat` = 30 # mL/min/kg (mouse, rat)
+`GFR fraction` = 1
+
+## Single-dose simulations to perform
+Species <- c("Mouse", "Mouse", "Rat", "Rat", "Dog","Dog") # Species to simulate
+Route <- c("IV", "PO", "IV", "PO", "IV", "PO") # Routes to simulate (aligns with species)
+Dose <- c(1, 10, 1, 10, 1, 10)
+DoseUnits <- "mg/kg" # applies to all dose scenarios
+SIM_TIME         <- "0, 24, 48;" #(format: "start, end, resolution; ...")
+SIM_TIME_UNIT    <- "h"
+
+
+#################### Pre-defined ####################
+## For all PO doses
+PO_WATER_VOL     <- 0.0035   # PO volume of water per body weight 
+PO_WATER_VOL_UNIT <- "L/kg"  # PO water volume unit
+
+## Protocol naming convention: {Dose}mpk_{Route}, e.g. "1mpk_IV", "10mpk_PO"
+## (auto-derived in the Generate configurations chunk from Species/Route/Dose vectors)
+
+# Molecule name in model
+CONTAINER_PATH <- "GenericSmallMolecule"
+```
+
+# Generate configurations files
+```{r}
+#| echo: true
+#| warning: false
+#| message: false
+
+# ---- 0. Helpers & paths -------------------------------------------------------
+source(file.path(projpath, "myfuns.R"))
+
+confpath <- file.path(projpath, "../Configurations")
+poppath  <- file.path(confpath, "PopulationsCSV")
+
+# Molecule identifier: used for ModelParameters sheet name and scenario naming.
+# Set MoleculeId in User Inputs if needed; otherwise auto-detected from PhysChem file.
+if (!exists("MoleculeId")) {
+  pc_file    <- list.files(file.path(projpath, "../01_Data"), pattern = "^PhysChem_", full.names = FALSE)[1]
+  MoleculeId <- if (!is.na(pc_file)) sub("^PhysChem_", "", tools::file_path_sans_ext(pc_file)) else "Compound"
+}
+
+# ---- 1. Simulation plan -------------------------------------------------------
+# Zip parallel Species / Route / Dose vectors into a tidy data frame.
+# ProtocolName is used as the sheet name in Applications.xlsx and referenced in Scenarios.xlsx.
+sim_plan <- data.frame(
+  Species      = Species,
+  Route        = toupper(Route),
+  Dose         = Dose,
+  DoseUnits    = DoseUnits,
+  stringsAsFactors = FALSE
+) |>
+  dplyr::mutate(ProtocolName = paste0(Dose, "mpk_", Route))
+
+# ---- 2. Species meta ---------------------------------------------------------
+# clh_suffix: suffix used in the model's CLh container name AND in the model file name.
+# Extend or reorder rows here to add new species (NHP = Monkey in PK-Sim).
+SPECIES_META <- data.frame(
+  Species      = c("Mouse",  "Rat",    "Dog",    "NHP",      "Human"),
+  PopulationId = c("Mouse",  "Rat",    "Dog",    "Monkey",   "Human"),
+  IndividualId = c("Indiv1", "Indiv2", "Indiv3", "Indiv4",   "Indiv5"),
+  clh_suffix   = c("Mouse",  "Rat",    "Dog",    "Monkey",   "Human"),  # matches CLh_* in .pkml
+  pop_csv      = c("Mouse-Population.csv", "Rat-Population.csv",  "Dog-Population.csv",
+                   "Monkey-Population.csv", "Human-Population.csv"),
+  pop_skip     = c(2L, 2L, 2L, 0L, 0L),
+  stringsAsFactors = FALSE
+)
+active_species <- SPECIES_META |> dplyr::filter(Species %in% unique(sim_plan$Species))
+
+# Species → hepatic clearance value lookup (mL/min/kg).
+# Variable names must match User Inputs exactly.
+CLH_LOOKUP <- c(
+  Mouse = `Liver Plasma Clearance - Mouse`,
+  Rat   = `Liver Plasma Clearance - Rat`,
+  Dog   = `Liver Plasma Clearance- Dog`,
+  Human = `Liver Plasma Clearance- Human`
+  # NHP = <add variable here if simulating NHP>
+)
+
+# ---- 3. ModelParameters.xlsx -------------------------------------------------
+# Only physico-chemical parameters go here — shared identically across all species.
+# Species-specific parameters (e.g., CLh) must NOT be placed here because esqlabsR
+# applies every row to every scenario regardless of which model file is loaded,
+# which causes "path not found" errors for species-specific containers.
+mp_rows <- data.frame(
+  ContainerPath = rep(CONTAINER_PATH, 7),
+  ParameterName = c(
+    "Lipophilicity",
+    "Fraction unbound (plasma, reference value)",
+    "Molecular weight",
+    "pKa value 0",
+    "Solubility at reference pH",
+    "Reference pH",
+    "Specific intestinal permeability (transcellular)"
+  ),
+  Value = c(Lipophilicity, fu, MW, pKa, `Solubility at Ref pH`, `Ref pH`,
+            `Specific Intestinal Permeability`),
+  Units = c("Log Units", "", "g/mol", "", "mg/L", "", "cm/min"),
+  stringsAsFactors = FALSE
+)
+
+mp_wb <- openxlsx::createWorkbook()
+# Global sheet: empty but required by esqlabsR
+openxlsx::addWorksheet(mp_wb, "Global")
+openxlsx::writeData(mp_wb, "Global",
+  as.data.frame(t(c("Container Path", "Parameter Name", "Value", "Units"))),
+  startRow = 1, colNames = FALSE
+)
+# Molecule sheet: header row written manually to preserve spaces, data below
+openxlsx::addWorksheet(mp_wb, MoleculeId)
+openxlsx::writeData(mp_wb, MoleculeId,
+  as.data.frame(t(c("Container Path", "Parameter Name", "Value", "Units"))),
+  startRow = 1, colNames = FALSE
+)
+openxlsx::writeData(mp_wb, MoleculeId, mp_rows, startRow = 2, colNames = FALSE)
+openxlsx::saveWorkbook(mp_wb, file.path(confpath, "ModelParameters.xlsx"), overwrite = TRUE)
+message("ModelParameters.xlsx written (", nrow(mp_rows), " parameters)")
+
+# ---- 4. Individuals.xlsx -----------------------------------------------------
+# One representative individual per species, drawn from population CSV row 1.
+biometrics <- dplyr::bind_rows(lapply(seq_len(nrow(active_species)), function(i) {
+  sm  <- active_species[i, ]
+  pop <- read_pop(file.path(poppath, sm$pop_csv), skip_lines = sm$pop_skip) |> dplyr::slice(1)
+  extract_biometrics(pop, sm$IndividualId, sm$PopulationId)
+}))
+
+indiv_wb <- openxlsx::createWorkbook()
+openxlsx::addWorksheet(indiv_wb, "IndividualBiometrics")
+openxlsx::writeData(indiv_wb, "IndividualBiometrics", biometrics, startRow = 1)
+
+# Per-individual parameter sheets: species-specific CLh clearance lives here.
+# esqlabsR applies each Indiv# sheet only to scenarios that reference that IndividualId,
+# so Mouse CLh_Mouse goes in Indiv1, Rat CLh_Rat in Indiv2, etc. — no cross-species errors.
+for (i in seq_len(nrow(active_species))) {
+  sp  <- active_species[i, ]
+  clh <- CLH_LOOKUP[sp$Species]
+
+  indiv_params <- if (!is.na(clh)) {
+    data.frame(
+      ContainerPath = paste0(CONTAINER_PATH, "-Total Hepatic Clearance-CLh_", sp$clh_suffix),
+      ParameterName = "Plasma clearance",
+      Value         = clh,
+      Units         = "mL/min/kg",
+      stringsAsFactors = FALSE
+    )
+  } else {
+    data.frame(ContainerPath = character(), ParameterName = character(),
+               Value = numeric(), Units = character(), stringsAsFactors = FALSE)
+  }
+
+  openxlsx::addWorksheet(indiv_wb, sp$IndividualId)
+  openxlsx::writeData(indiv_wb, sp$IndividualId,
+    as.data.frame(t(c("Container Path", "Parameter Name", "Value", "Units"))),
+    startRow = 1, colNames = FALSE
+  )
+  if (nrow(indiv_params) > 0)
+    openxlsx::writeData(indiv_wb, sp$IndividualId, indiv_params, startRow = 2, colNames = FALSE)
+}
+openxlsx::saveWorkbook(indiv_wb, file.path(confpath, "Individuals.xlsx"), overwrite = TRUE)
+message("Individuals.xlsx written (", nrow(biometrics), " individuals)")
+
+# ---- 5. Populations.xlsx -----------------------------------------------------
+# Required by esqlabsR project configuration even when using individual-based sims.
+# weightMin / weightMax are read directly from the population CSV files; leaving
+# them NA causes a "Maximum value for MeanBW should be defined" error at runtime.
+
+# Read population name AND weight range directly from each CSV.
+# The `population` column in Demographics must be the PK-Sim internal population
+# name stored in the CSV's "Population Name" column (e.g. "WhiteAmerican_NHANES_1997"
+# for Human, "Mouse" for Mouse), NOT the generic label we use as PopulationId.
+pop_stats <- dplyr::bind_rows(lapply(seq_len(nrow(active_species)), function(i) {
+  sm  <- active_species[i, ]
+  pop <- read_pop(file.path(poppath, sm$pop_csv), skip_lines = sm$pop_skip)
+  bw  <- pop[["Organism|Weight [kg]"]]
+  data.frame(
+    PopulationId   = sm$PopulationId,
+    pksim_pop_name = pop[["Population"]][1],   # PK-Sim internal name (e.g. "WhiteAmerican_NHANES_1997")
+    n_individuals  = nrow(pop),
+    weightMin      = min(bw, na.rm = TRUE),
+    weightMax      = max(bw, na.rm = TRUE),
+    stringsAsFactors = FALSE
+  )
+}))
+
+demo <- dplyr::left_join(
+  data.frame(
+    PopulationName      = active_species$PopulationId,
+    species             = active_species$Species,
+    proportionOfFemales = 50,
+    weightUnit          = "kg",
+    heightMin = NA, heightMax = NA, heightUnit = NA,
+    ageMin    = NA, ageMax    = NA,
+    BMIMin    = NA, BMIMax    = NA, BMIUnit    = NA,
+    `Protein Ontogenies` = NA,
+    check.names = FALSE, stringsAsFactors = FALSE
+  ),
+  pop_stats,
+  by = c("PopulationName" = "PopulationId")
+) |>
+  dplyr::rename(population = pksim_pop_name, numberOfIndividuals = n_individuals) |>
+  dplyr::select(PopulationName, species, population, numberOfIndividuals,
+                proportionOfFemales, weightMin, weightMax, weightUnit,
+                heightMin, heightMax, heightUnit, ageMin, ageMax,
+                BMIMin, BMIMax, BMIUnit, `Protein Ontogenies`)
+
+uv <- data.frame(
+  `Container Path` = character(), `Parameter Name` = character(),
+  Mean = character(), SD = character(), Distribution = character(),
+  check.names = FALSE, stringsAsFactors = FALSE
+)
+openxlsx::write.xlsx(list(Demographics = demo, UserDefinedVariability = uv),
+                     file = file.path(confpath, "Populations.xlsx"), overwrite = TRUE)
+message("Populations.xlsx written — weight ranges: ",
+        paste(demo$PopulationName, "[", round(demo$weightMin,3), "-",
+              round(demo$weightMax,3), "kg]", collapse = ", "))
+
+# ---- 6. Applications.xlsx ----------------------------------------------------
+# One sheet per unique protocol (e.g., "1mpk_IV", "10mpk_PO").
+# Sheet name must match ApplicationProtocol column in Scenarios.xlsx.
+unique_protos <- dplyr::distinct(sim_plan, ProtocolName, Route, Dose, DoseUnits)
+
+app_sheets <- lapply(seq_len(nrow(unique_protos)), function(i) {
+  p     <- unique_protos[i, ]
+  proto <- p$ProtocolName
+
+  if (p$Route == "IV") {
+    data.frame(
+      `Container Path` = paste0("Events|", proto, "|Application_1|ProtocolSchemaItem"),
+      `Parameter Name` = "DosePerBodyWeight",
+      Value            = p$Dose,
+      Units            = p$DoseUnits,
+      check.names = FALSE, stringsAsFactors = FALSE
+    )
+  } else {
+    data.frame(
+      `Container Path` = paste0("Events|", proto, "|Dissolved|Application_1|ProtocolSchemaItem"),
+      `Parameter Name` = c("DosePerBodyWeight", "Volume of water/body weight"),
+      Value            = c(p$Dose,   PO_WATER_VOL),
+      Units            = c(p$DoseUnits, PO_WATER_VOL_UNIT),
+      check.names = FALSE, stringsAsFactors = FALSE
+    )
+  }
+})
+names(app_sheets) <- unique_protos$ProtocolName
+openxlsx::write.xlsx(app_sheets, file = file.path(confpath, "Applications.xlsx"), overwrite = TRUE)
+message("Applications.xlsx written (", nrow(unique_protos), " protocols: ",
+        paste(names(app_sheets), collapse = ", "), ")")
+
+# ---- 7. Scenarios.xlsx -------------------------------------------------------
+# Model file is now species- AND route-specific: GenericSmallMolecule_{Route}_{Species}.pkml
+scenario_rows <- lapply(seq_len(nrow(sim_plan)), function(i) {
+  sp <- active_species |> dplyr::filter(Species == sim_plan$Species[i])
+  if (nrow(sp) == 0) {
+    warning("Species '", sim_plan$Species[i], "' not found in SPECIES_META — row skipped.")
+    return(NULL)
+  }
+  data.frame(
+    Scenario_name         = paste(MoleculeId, sp$Species, sim_plan$ProtocolName[i], sep = "_"),
+    IndividualId          = sp$IndividualId,
+    PopulationId          = sp$PopulationId,
+    ReadPopulationFromCSV = FALSE,
+    ModelParameterSheets  = paste0('"', MoleculeId, '"'),
+    ApplicationProtocol   = sim_plan$ProtocolName[i],
+    SimulationTime        = SIM_TIME,
+    SimulationTimeUnit    = SIM_TIME_UNIT,
+    SteadyState           = FALSE,
+    SteadyStateTime       = NA_real_,
+    SteadyStateTimeUnit   = NA_character_,
+    ModelFile             = paste0("GenericSmallMolecule_", sim_plan$Route[i], "_", sp$clh_suffix, ".pkml"),
+    OutputPathsIds        = "Plasma_Conc",
+    stringsAsFactors      = FALSE
+  )
+})
+all_scenarios <- dplyr::bind_rows(scenario_rows)
+
+output_paths <- data.frame(
+  OutputPathId = "Plasma_Conc",
+  OutputPath   = paste0("Organism|PeripheralVenousBlood|", CONTAINER_PATH,
+                        "|Plasma (Peripheral Venous Blood)"),
+  stringsAsFactors = FALSE
+)
+
+openxlsx::write.xlsx(
+  list(Scenarios = all_scenarios, OutputPaths = output_paths),
+  file = file.path(confpath, "Scenarios.xlsx"), overwrite = TRUE
+)
+message("Scenarios.xlsx written (", nrow(all_scenarios), " scenarios)")
+```
+
+# Run simulations
+```{r}
+#| echo: true
+#| warning: false
+#| message: false
+
+myProjectConfiguration <-
+  createProjectConfiguration(configurationPath)
+
+# Define which scenarios to run (NULL = run all; filter rows as needed)
+Keepscenarios <- read.xlsx(file.path(confpath, "Scenarios.xlsx"), sheet = 1) %>%
+  pull(Scenario_name)
+
+scenarioNames <-  Keepscenarios
+
+# Create `ScenarioConfiguration` objects from excel files
+scenarioConfigurations <- readScenarioConfigurationFromExcel(
+  scenarioNames = scenarioNames,
+  projectConfiguration = myProjectConfiguration
+)
+
+# Create simulation scenarios defined in the excel files and apply the custom parameters
+myScenarios <- createScenarios(
+  scenarioConfigurations = scenarioConfigurations)
+
+# Adjust simulation run options, if necessary.
+simulationRunOptions <- ospsuite::SimulationRunOptions$new()
+simulationRunOptions$checkForNegativeValues <- FALSE
+
+# Run simulations
+simulatedScenariosResults <- runScenarios(
+  scenarios = myScenarios,
+  simulationRunOptions = simulationRunOptions
+)
+
+# Save results and store the path to the results for later re-use
+outputFolder <- saveScenarioResults(simulatedScenariosResults, myProjectConfiguration)
+
+```
+
+## Plot and compare with observed data
+```{r}
+#| echo: true
+#| warning: false
+#| message: false
+
+outputFolder <- file.path(projpath, "../03_SimOutputs/SimulationResults/2026-06-04 20-07")
+
+results <- read_all_results(file.path(outputFolder))
+
+results <- process_results(
+  results_df        = results,
+  model_params_path = file.path(configurationFolderPath, "ModelParameters.xlsx")
+)
+
+# My manual function
+obs_data <- NULL #read_observed_data(file.path(projpath, "Data"))
+
+
+df <- results
+    
+ggplot(df, aes(x = Time_hr, y = Conc_ngml, color = Route)) +
+      geom_line() +
+      facet_wrap(~ Species, scales = "free_y") +
+      labs(
+        x = "Time (hr)",
+        y = "Concentration (ng/mL)",
+        color = "Route"
+      ) +
+      scale_color_viridis_d() +
+      scale_y_log10() +
+      theme_bw(base_size = 16) +  
+      theme(legend.position  = "bottom") 
+```
+

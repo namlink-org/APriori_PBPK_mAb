@@ -1,0 +1,69 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Module id="4zG1hcjTgUGJBBv0odPPqQ" name="TMDD" icon="Module" moduleImportVersion="1831386771" mergeBehavior="Extend" isPKSimModule="0" version="18">
+  <BuildingBlocks>
+    <ReactionBuildingBlock id="hoOT_X9dU0Cx4UWRhXvf5g" name="Reactions" icon="Reaction" bbVersion="31">
+      <Creation createdAt="5250846231857057386" createdBy="KrinaMehta" creationMode="New" origin="MoBi" version="12.2" internalVersion="18" />
+      <Builders>
+        <ReactionBuilder id="naoKk35R8UKot8tr_FE4Ig" name="Complex Internalization" icon="Reaction" mode="Logical" containerType="Reaction" dimension="Amount per time" createProcessRateParameter="0" processRateParameterPersistable="0" formula="c88e71f9-2eee-46f3-afac-474c781e0a81">
+          <Children>
+            <Parameter id="Hz4dyk7RhESlltNpMsY90A" name="kint" icon="Parameter" persistable="0" isFixedValue="0" dim="Inversed time" quantityType="Parameter" negativeValuesAllowed="1" buildMode="Global" isDefault="0" value="1" displayUnit="1/min">
+              <Info flag="10" seq="1" ref="0" bb="2" group="143" />
+            </Parameter>
+          </Children>
+          <ContainerCriteria operator="And" />
+          <Educts>
+            <ReactionPartnerBuilder moleculeName="mAb-Target-InVitro Complex" stoichiometricCoefficient="1" />
+          </Educts>
+        </ReactionBuilder>
+        <ReactionBuilder id="ITY1RX4hxU-N_-PdXnHYIw" name="Target degradation" icon="Reaction" mode="Logical" containerType="Reaction" dimension="Amount per time" createProcessRateParameter="1" processRateParameterPersistable="0" formula="b4b812b7-d52a-4076-8892-a53dbe882948">
+          <Children>
+            <Parameter id="drHLDlRDBkuQDT7nrQhVTA" name="kdeg" icon="Parameter" persistable="0" isFixedValue="0" dim="Inversed time" quantityType="Parameter" negativeValuesAllowed="1" buildMode="Global" isDefault="0" value="0.00347" displayUnit="1/min">
+              <Info flag="10" seq="1" ref="0" bb="2" group="143" />
+            </Parameter>
+          </Children>
+          <ContainerCriteria operator="And" />
+          <Educts>
+            <ReactionPartnerBuilder moleculeName="Target" stoichiometricCoefficient="1" />
+          </Educts>
+        </ReactionBuilder>
+      </Builders>
+      <FormulaCache>
+        <Formulas>
+          <Formula id="c88e71f9-2eee-46f3-afac-474c781e0a81" name="Complex Internalization" dim="Amount per time" formula="kint * Complex">
+            <Paths>
+              <Path path="0" as="1" dim="2" />
+              <Path path="3" as="4" dim="5" />
+            </Paths>
+          </Formula>
+          <Formula id="b4b812b7-d52a-4076-8892-a53dbe882948" name="Target degradation" dim="Amount per time" formula="kdeg*(Target - Start_amount)">
+            <Paths>
+              <Path path="6" as="7" dim="2" />
+              <Path path="8" as="9" dim="5" />
+              <Path path="10" as="11" dim="5" />
+            </Paths>
+          </Formula>
+        </Formulas>
+        <StringMap>
+          <Map s="Complex Internalization|kint" id="0" />
+          <Map s="kint" id="1" />
+          <Map s="Inversed time" id="2" />
+          <Map s="..|mAb-Target-InVitro Complex" id="3" />
+          <Map s="Complex" id="4" />
+          <Map s="Amount" id="5" />
+          <Map s="Target degradation|kdeg" id="6" />
+          <Map s="kdeg" id="7" />
+          <Map s="..|Target|Start amount" id="8" />
+          <Map s="Start_amount" id="9" />
+          <Map s="..|Target" id="10" />
+          <Map s="Target" id="11" />
+        </StringMap>
+      </FormulaCache>
+      <DiagramModel IsLayouted="True">
+        <ReactionNode Id="naoKk35R8UKot8tr_FE4Ig" Name="Complex Internalization" Location="650 390" Size="167.375 42.109375" Hidden="false" IsVisible="true" LocationFixed="false" UserFlags="6" Description="Complex Internalization" NodeSize="Middle" DisplayEductsRight="false" />
+        <ReactionNode Id="ITY1RX4hxU-N_-PdXnHYIw" Name="Target degradation" Location="300 330" Size="135.101563 42.109375" Hidden="false" IsVisible="true" LocationFixed="false" UserFlags="6" Description="Target degradation" NodeSize="Middle" DisplayEductsRight="false" />
+        <MoleculeNode Id="a95723d7-7160-41d1-8370-17dc81230c29" Name="Target" Location="180 300" Size="61.2421875 18.109375" Hidden="false" IsVisible="true" LocationFixed="false" UserFlags="4" Description="Target" NodeSize="Middle" />
+        <MoleculeNode Id="122baa64-df7b-4879-8c24-f173a44a3772" Name="mAb-Target-InVitro Complex" Location="553.75 328.1953" Size="218.609375 18.109375" Hidden="false" IsVisible="true" LocationFixed="false" UserFlags="4" Description="mAb-Target-InVitro Complex" NodeSize="Middle" />
+      </DiagramModel>
+    </ReactionBuildingBlock>
+  </BuildingBlocks>
+</Module>
