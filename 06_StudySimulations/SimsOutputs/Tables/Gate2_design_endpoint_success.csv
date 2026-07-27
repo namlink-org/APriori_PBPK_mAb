@@ -1,0 +1,73 @@
+"Drug","Design","N_per_group","Total_animals","Endpoint","Fraction_within_2fold"
+"Atezolizumab","2 dose groups",2,4,"AUC0-28d",1
+"Atezolizumab","2 dose groups",2,4,"Cmax",1
+"Atezolizumab","2 dose groups",2,4,"Terminal clearance",0.998
+"Atezolizumab","2 dose groups",3,6,"AUC0-28d",1
+"Atezolizumab","2 dose groups",3,6,"Cmax",1
+"Atezolizumab","2 dose groups",3,6,"Terminal clearance",1
+"Atezolizumab","2 dose groups",4,8,"AUC0-28d",1
+"Atezolizumab","2 dose groups",4,8,"Cmax",1
+"Atezolizumab","2 dose groups",4,8,"Terminal clearance",1
+"Atezolizumab","3 dose groups",2,6,"AUC0-28d",1
+"Atezolizumab","3 dose groups",2,6,"Cmax",1
+"Atezolizumab","3 dose groups",2,6,"Terminal clearance",0.993
+"Atezolizumab","3 dose groups",3,9,"AUC0-28d",1
+"Atezolizumab","3 dose groups",3,9,"Cmax",1
+"Atezolizumab","3 dose groups",3,9,"Terminal clearance",0.998
+"Atezolizumab","3 dose groups",4,12,"AUC0-28d",1
+"Atezolizumab","3 dose groups",4,12,"Cmax",1
+"Atezolizumab","3 dose groups",4,12,"Terminal clearance",1
+"Avelumab","2 dose groups",2,4,"AUC0-28d",0.994
+"Avelumab","2 dose groups",2,4,"Cmax",0.996
+"Avelumab","2 dose groups",2,4,"Terminal clearance",0.994
+"Avelumab","2 dose groups",3,6,"AUC0-28d",1
+"Avelumab","2 dose groups",3,6,"Cmax",0.997
+"Avelumab","2 dose groups",3,6,"Terminal clearance",1
+"Avelumab","2 dose groups",4,8,"AUC0-28d",1
+"Avelumab","2 dose groups",4,8,"Cmax",1
+"Avelumab","2 dose groups",4,8,"Terminal clearance",1
+"Avelumab","3 dose groups",2,6,"AUC0-28d",0.993
+"Avelumab","3 dose groups",2,6,"Cmax",0.991
+"Avelumab","3 dose groups",2,6,"Terminal clearance",0.998
+"Avelumab","3 dose groups",3,9,"AUC0-28d",1
+"Avelumab","3 dose groups",3,9,"Cmax",0.999
+"Avelumab","3 dose groups",3,9,"Terminal clearance",1
+"Avelumab","3 dose groups",4,12,"AUC0-28d",1
+"Avelumab","3 dose groups",4,12,"Cmax",1
+"Avelumab","3 dose groups",4,12,"Terminal clearance",1
+"Nivolumab","2 dose groups",2,4,"AUC0-28d",1
+"Nivolumab","2 dose groups",2,4,"Cmax",1
+"Nivolumab","2 dose groups",2,4,"Terminal clearance",0.989
+"Nivolumab","2 dose groups",3,6,"AUC0-28d",1
+"Nivolumab","2 dose groups",3,6,"Cmax",1
+"Nivolumab","2 dose groups",3,6,"Terminal clearance",0.996
+"Nivolumab","2 dose groups",4,8,"AUC0-28d",1
+"Nivolumab","2 dose groups",4,8,"Cmax",1
+"Nivolumab","2 dose groups",4,8,"Terminal clearance",1
+"Nivolumab","3 dose groups",2,6,"AUC0-28d",1
+"Nivolumab","3 dose groups",2,6,"Cmax",1
+"Nivolumab","3 dose groups",2,6,"Terminal clearance",0.988
+"Nivolumab","3 dose groups",3,9,"AUC0-28d",1
+"Nivolumab","3 dose groups",3,9,"Cmax",1
+"Nivolumab","3 dose groups",3,9,"Terminal clearance",0.998
+"Nivolumab","3 dose groups",4,12,"AUC0-28d",1
+"Nivolumab","3 dose groups",4,12,"Cmax",1
+"Nivolumab","3 dose groups",4,12,"Terminal clearance",0.999
+"Pembrolizumab","2 dose groups",2,4,"AUC0-28d",1
+"Pembrolizumab","2 dose groups",2,4,"Cmax",0.979
+"Pembrolizumab","2 dose groups",2,4,"Terminal clearance",0.988
+"Pembrolizumab","2 dose groups",3,6,"AUC0-28d",1
+"Pembrolizumab","2 dose groups",3,6,"Cmax",0.997
+"Pembrolizumab","2 dose groups",3,6,"Terminal clearance",0.997
+"Pembrolizumab","2 dose groups",4,8,"AUC0-28d",1
+"Pembrolizumab","2 dose groups",4,8,"Cmax",1
+"Pembrolizumab","2 dose groups",4,8,"Terminal clearance",0.999
+"Pembrolizumab","3 dose groups",2,6,"AUC0-28d",1
+"Pembrolizumab","3 dose groups",2,6,"Cmax",0.955
+"Pembrolizumab","3 dose groups",2,6,"Terminal clearance",0.983
+"Pembrolizumab","3 dose groups",3,9,"AUC0-28d",1
+"Pembrolizumab","3 dose groups",3,9,"Cmax",0.985
+"Pembrolizumab","3 dose groups",3,9,"Terminal clearance",0.996
+"Pembrolizumab","3 dose groups",4,12,"AUC0-28d",1
+"Pembrolizumab","3 dose groups",4,12,"Cmax",0.999
+"Pembrolizumab","3 dose groups",4,12,"Terminal clearance",1
