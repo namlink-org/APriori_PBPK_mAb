@@ -1,0 +1,25 @@
+"Drug","Design","N_per_group","Total_animals","Fraction_within_2fold"
+"Atezolizumab","2 dose groups",2,4,0.998
+"Atezolizumab","2 dose groups",3,6,1
+"Atezolizumab","2 dose groups",4,8,1
+"Atezolizumab","3 dose groups",2,6,0.993
+"Atezolizumab","3 dose groups",3,9,0.998
+"Atezolizumab","3 dose groups",4,12,1
+"Avelumab","2 dose groups",2,4,0.984
+"Avelumab","2 dose groups",3,6,0.997
+"Avelumab","2 dose groups",4,8,1
+"Avelumab","3 dose groups",2,6,0.982
+"Avelumab","3 dose groups",3,9,0.999
+"Avelumab","3 dose groups",4,12,1
+"Nivolumab","2 dose groups",2,4,0.989
+"Nivolumab","2 dose groups",3,6,0.996
+"Nivolumab","2 dose groups",4,8,1
+"Nivolumab","3 dose groups",2,6,0.988
+"Nivolumab","3 dose groups",3,9,0.998
+"Nivolumab","3 dose groups",4,12,0.999
+"Pembrolizumab","2 dose groups",2,4,0.967
+"Pembrolizumab","2 dose groups",3,6,0.994
+"Pembrolizumab","2 dose groups",4,8,0.999
+"Pembrolizumab","3 dose groups",2,6,0.939
+"Pembrolizumab","3 dose groups",3,9,0.981
+"Pembrolizumab","3 dose groups",4,12,0.999

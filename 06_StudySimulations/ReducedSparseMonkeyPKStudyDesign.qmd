@@ -1,5 +1,5 @@
 ---
-title: "Reduced sparse monkey PK study design"
+title: "Reduced sparse monkey PK study design analysis"
 author: NAMLink
 format:
   html:
@@ -16,15 +16,22 @@ prefer-html: true
 
 ## Purpose
 
-This report documents the inputs used for the reduced sparse monkey PK study
-design and displays the previously completed fold-error analysis. It does not
-rerun the PK model or the study-design simulations.
+This report documents the reduced sparse monkey PK study-design analysis for
+AUC0-28d, Cmax, and terminal clearance. The analysis compares study arithmetic
+means with full rich-population arithmetic means using the standard fold error:
+
+`fold error = reduced-study estimate / rich-population reference`.
+
+The prespecified acceptable interval is 0.5-2.0. Candidate group sizes are 2,
+3, and 4 animals per dose group; five-animal groups are excluded from every
+scenario.
 
 The analysis is predefined for atezolizumab, avelumab, nivolumab, and
 pembrolizumab. Run 4 top-down estimates and relative standard errors (RSEs) are
 read directly from the final monkey-model fit. Parameter uncertainty is
-represented by those RSEs, and 30% interindividual variability (IIV) is
-specified independently for CL, V1, Q, and V2.
+represented by available RSEs, and 30% interindividual variability (IIV) is
+specified independently for CL, V1, Q, and V2. A structural parameter fixed in
+Run 4, and therefore missing an estimated RSE, is assigned a 40% RSE.
 
 ```{r}
 #| label: setup
@@ -45,6 +52,8 @@ MOLECULES <- c(
   "Pembrolizumab"
 )
 IIV_CV_PERCENT <- 30
+N_PER_GROUP <- 2:4
+ENDPOINTS <- c("AUC0-28d", "Cmax", "Terminal clearance")
 
 study_dir <- if (
   basename(normalizePath(".", winslash = "/", mustWork = TRUE)) ==
@@ -65,11 +74,23 @@ run4_file <- file.path(
   "SimsOutputs",
   "TopDownTMDD_Run4_CL_Vc_Q_Vp_fixed_TMDD_Monkey.rds"
 )
-figure_file <- file.path(
+fold_error_figure_file <- file.path(
   study_dir,
   "SimsOutputs",
   "Figures",
-  "Gate2_design_fold_error_two_vs_three_dose_by_n.png"
+  "Gate2_design_standard_fold_error_by_endpoint.png"
+)
+power_figure_file <- file.path(
+  study_dir,
+  "SimsOutputs",
+  "Figures",
+  "Gate2_design_power_by_endpoint.png"
+)
+endpoint_success_file <- file.path(
+  study_dir,
+  "SimsOutputs",
+  "Tables",
+  "Gate2_design_endpoint_success.csv"
 )
 ```
 
@@ -156,30 +177,109 @@ run4_parameter_inputs |>
   )
 ```
 
-For parameters fixed in Run 4, an RSE is not available and is shown as missing.
-The 30% IIV is still applied to all four structural parameters in the completed
-simulation analysis.
+For parameters fixed in Run 4, the fitted RSE is unavailable and is shown as
+missing in the input table. The simulation assigns those parameters a 40% RSE.
+The independent 30% IIV is applied to all four structural parameters.
 
-## Fold-error study-design figure
+## Analysis definitions
 
-The figure below is reused from the completed simulations. No model simulation,
-parameter sampling, or study-design resampling is performed during this
-render.
+For each simulated study replicate, animals are sampled independently within
+each selected dose group. AUC0-28d, Cmax, and terminal clearance are summarized
+with arithmetic means. Terminal clearance follows the project-wide PK
+convention: the terminal slope is selected from consecutive post-Cmax suffixes
+using the largest adjusted R-squared, `AUCinf = AUClast + Clast/lambda_z`, and
+whole-animal clearance is `24 * Dose * 3.5 kg / AUCinf`.
+
+The two-dose design uses 0.3 and 10 mg/kg, and the three-dose design uses 0.3,
+3, and 10 mg/kg. A design-level endpoint result is within 2-fold only if every
+selected dose group has a standard fold error between 0.5 and 2.0.
+
+## Standard fold-error distributions
+
+The analysis script `RunReducedSparsePKAnalysis.R` generates the simulation
+outputs. The report reads those completed outputs rather than rerunning the
+model during rendering.
 
 ```{r}
-#| label: fold-error-figure
+#| label: standard-fold-error-figure
 #| echo: false
-#| fig-cap: "Fold-error distributions for two- and three-dose reduced sparse monkey PK study designs."
+#| fig-cap: "Standard fold-error distributions for AUC0-28d, Cmax, and terminal clearance."
 #| out-width: "100%"
 
-if (!file.exists(figure_file)) {
+if (!file.exists(fold_error_figure_file)) {
   stop(
-    "The completed fold-error figure is missing: ",
-    figure_file,
-    ". Model simulations are intentionally not rerun by this report."
+    "The completed standard fold-error figure is missing: ",
+    fold_error_figure_file,
+    ". Run RunReducedSparsePKAnalysis.R first."
   )
 }
 
-include_graphics(figure_file)
+include_graphics(fold_error_figure_file)
 ```
 
+## Power-style operating characteristics
+
+The y-axis is the fraction of simulated studies for which every selected dose
+group is within 2-fold for the indicated PK endpoint.
+
+```{r}
+#| label: power-figure
+#| echo: false
+#| fig-cap: "Fraction of simulated studies within 2-fold by sample size per dose group."
+#| out-width: "100%"
+
+if (!file.exists(power_figure_file)) {
+  stop(
+    "The completed power-style figure is missing: ",
+    power_figure_file,
+    ". Run RunReducedSparsePKAnalysis.R first."
+  )
+}
+
+include_graphics(power_figure_file)
+```
+
+## Endpoint success summary
+
+```{r}
+#| label: endpoint-success-summary
+
+if (!file.exists(endpoint_success_file)) {
+  stop(
+    "The endpoint success table is missing: ",
+    endpoint_success_file,
+    ". Run RunReducedSparsePKAnalysis.R first."
+  )
+}
+
+endpoint_success <- read.csv(
+  endpoint_success_file,
+  stringsAsFactors = FALSE
+)
+
+stopifnot(
+  setequal(sort(unique(endpoint_success$N_per_group)), N_PER_GROUP),
+  !any(endpoint_success$N_per_group == 5),
+  setequal(unique(endpoint_success$Endpoint), ENDPOINTS)
+)
+
+endpoint_success |>
+  mutate(
+    Fraction_within_2fold = round(Fraction_within_2fold, 3)
+  ) |>
+  arrange(Drug, Endpoint, Design, N_per_group) |>
+  kable(
+    caption = paste(
+      "Fraction of simulated studies within 2-fold for every selected dose",
+      "group, by endpoint, design, and group size."
+    ),
+    col.names = c(
+      "Drug",
+      "Design",
+      "Animals per dose",
+      "Total animals",
+      "Endpoint",
+      "Fraction within 2-fold"
+    )
+  )
+```
