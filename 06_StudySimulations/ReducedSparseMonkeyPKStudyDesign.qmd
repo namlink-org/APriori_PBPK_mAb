@@ -1,0 +1,185 @@
+---
+title: "Reduced sparse monkey PK study design"
+author: NAMLink
+format:
+  html:
+    toc: true
+    code-fold: false
+    theme: none
+    highlight-style: none
+    embed-resources: true
+execute:
+  warning: false
+  message: false
+prefer-html: true
+---
+
+## Purpose
+
+This report documents the inputs used for the reduced sparse monkey PK study
+design and displays the previously completed fold-error analysis. It does not
+rerun the PK model or the study-design simulations.
+
+The analysis is predefined for atezolizumab, avelumab, nivolumab, and
+pembrolizumab. Run 4 top-down estimates and relative standard errors (RSEs) are
+read directly from the final monkey-model fit. Parameter uncertainty is
+represented by those RSEs, and 30% interindividual variability (IIV) is
+specified independently for CL, V1, Q, and V2.
+
+```{r}
+#| label: setup
+
+rm(list = ls())
+
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(knitr)
+  library(purrr)
+  library(tibble)
+})
+
+MOLECULES <- c(
+  "Atezolizumab",
+  "Avelumab",
+  "Nivolumab",
+  "Pembrolizumab"
+)
+IIV_CV_PERCENT <- 30
+
+study_dir <- if (
+  basename(normalizePath(".", winslash = "/", mustWork = TRUE)) ==
+    "06_StudySimulations"
+) {
+  normalizePath(".", winslash = "/", mustWork = TRUE)
+} else {
+  normalizePath("06_StudySimulations", winslash = "/", mustWork = TRUE)
+}
+project_dir <- normalizePath(
+  file.path(study_dir, ".."),
+  winslash = "/",
+  mustWork = TRUE
+)
+run4_file <- file.path(
+  project_dir,
+  "04_TopDown",
+  "SimsOutputs",
+  "TopDownTMDD_Run4_CL_Vc_Q_Vp_fixed_TMDD_Monkey.rds"
+)
+figure_file <- file.path(
+  study_dir,
+  "SimsOutputs",
+  "Figures",
+  "Gate2_design_fold_error_two_vs_three_dose_by_n.png"
+)
+```
+
+## Run 4 parameter inputs
+
+```{r}
+#| label: run4-parameter-inputs
+
+run4_fits <- readRDS(run4_file)
+
+missing_molecules <- setdiff(MOLECULES, names(run4_fits))
+if (length(missing_molecules) > 0L) {
+  stop(
+    "Final Run 4 fits are missing for: ",
+    paste(missing_molecules, collapse = ", ")
+  )
+}
+
+parameter_map <- tribble(
+  ~Parameter, ~Theta_name, ~Log_parameter,
+  "CL",       "cl",        "lcl",
+  "V1",       "vc",        "lvc",
+  "Q",        "q",         "lq",
+  "V2",       "vp",        "lvp"
+)
+
+extract_run4_parameters <- function(molecule) {
+  fit <- run4_fits[[molecule]]$fit
+  estimated_parameters <- names(fit$opt$par)
+  rse <- fit$rse_percent
+
+  parameter_map |>
+    mutate(
+      Molecule = molecule,
+      Estimate = map_dbl(Theta_name, ~ unname(fit$theta[[.x]])),
+      RSE_percent = map_dbl(
+        Log_parameter,
+        ~ if (.x %in% names(rse)) unname(rse[[.x]]) else NA_real_
+      ),
+      Run4_status = if_else(
+        Log_parameter %in% estimated_parameters,
+        "Estimated",
+        "Fixed"
+      ),
+      IIV_CV_percent = IIV_CV_PERCENT
+    ) |>
+    select(
+      Molecule,
+      Parameter,
+      Estimate,
+      RSE_percent,
+      Run4_status,
+      IIV_CV_percent
+    )
+}
+
+run4_parameter_inputs <- map_dfr(MOLECULES, extract_run4_parameters)
+
+stopifnot(
+  setequal(run4_parameter_inputs$Molecule, MOLECULES),
+  all(is.finite(run4_parameter_inputs$Estimate)),
+  all(run4_parameter_inputs$Estimate > 0),
+  all(run4_parameter_inputs$IIV_CV_percent == 30)
+)
+
+run4_parameter_inputs |>
+  mutate(
+    Estimate = signif(Estimate, 5),
+    RSE_percent = round(RSE_percent, 2)
+  ) |>
+  kable(
+    caption = paste(
+      "Final Run 4 structural parameter estimates and RSEs.",
+      "Thirty percent IIV is specified separately for all four parameters."
+    ),
+    col.names = c(
+      "Molecule",
+      "Parameter",
+      "Estimate",
+      "RSE (%)",
+      "Run 4 status",
+      "IIV CV (%)"
+    )
+  )
+```
+
+For parameters fixed in Run 4, an RSE is not available and is shown as missing.
+The 30% IIV is still applied to all four structural parameters in the completed
+simulation analysis.
+
+## Fold-error study-design figure
+
+The figure below is reused from the completed simulations. No model simulation,
+parameter sampling, or study-design resampling is performed during this
+render.
+
+```{r}
+#| label: fold-error-figure
+#| echo: false
+#| fig-cap: "Fold-error distributions for two- and three-dose reduced sparse monkey PK study designs."
+#| out-width: "100%"
+
+if (!file.exists(figure_file)) {
+  stop(
+    "The completed fold-error figure is missing: ",
+    figure_file,
+    ". Model simulations are intentionally not rerun by this report."
+  )
+}
+
+include_graphics(figure_file)
+```
+
