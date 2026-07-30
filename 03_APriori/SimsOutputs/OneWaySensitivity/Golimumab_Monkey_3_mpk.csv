@@ -1,0 +1,7 @@
+"Scenario","Molecule","Species","Dose","Parameter","VariationFactor","ParameterValue","ParameterUnit","Pred_CL_L_day"
+"Golimumab_Monkey_3_mpk","Golimumab","Monkey",3,"Target reference concentration",0.1,1e-07,"µmol/l",0.0360040344542007
+"Golimumab_Monkey_3_mpk","Golimumab","Monkey",3,"Target reference concentration",10,1e-05,"µmol/l",0.0360528163460914
+"Golimumab_Monkey_3_mpk","Golimumab","Monkey",3,"kdeg",0.1,0.000371666666666667,"1/min",0.036004056164197
+"Golimumab_Monkey_3_mpk","Golimumab","Monkey",3,"kdeg",10,0.0371666666666667,"1/min",0.0360506491337288
+"Golimumab_Monkey_3_mpk","Golimumab","Monkey",3,"kint",0.1,0.00144333333333333,"1/min",0.0360084064631153
+"Golimumab_Monkey_3_mpk","Golimumab","Monkey",3,"kint",10,0.144333333333333,"1/min",0.0360084721802107

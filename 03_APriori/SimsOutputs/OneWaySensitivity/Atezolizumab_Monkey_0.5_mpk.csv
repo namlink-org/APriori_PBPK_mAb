@@ -1,0 +1,7 @@
+"Scenario","Molecule","Species","Dose","Parameter","VariationFactor","ParameterValue","ParameterUnit","Pred_CL_L_day"
+"Atezolizumab_Monkey_0.5_mpk","Atezolizumab","Monkey",0.5,"Target reference concentration",0.1,6.09e-05,"µmol/l",0.0253716992798835
+"Atezolizumab_Monkey_0.5_mpk","Atezolizumab","Monkey",0.5,"Target reference concentration",10,0.00609,"µmol/l",0.0285206034117685
+"Atezolizumab_Monkey_0.5_mpk","Atezolizumab","Monkey",0.5,"kdeg",0.1,7.1e-05,"1/min",0.0255146355238727
+"Atezolizumab_Monkey_0.5_mpk","Atezolizumab","Monkey",0.5,"kdeg",10,0.0071,"1/min",0.0257343934720118
+"Atezolizumab_Monkey_0.5_mpk","Atezolizumab","Monkey",0.5,"kint",0.1,0.00101,"1/min",0.0254117926627512
+"Atezolizumab_Monkey_0.5_mpk","Atezolizumab","Monkey",0.5,"kint",10,0.101,"1/min",0.0258409325732305

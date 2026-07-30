@@ -24,6 +24,7 @@ library(scales)
 library(knitr)
 library(openxlsx)
 library(kableExtra)
+library(esqlabsR)
 
 # Helper functions -------------------------------------------------------------
 # Keep all local helpers here so this script is stand-alone and does not depend
@@ -353,6 +354,15 @@ PROFILE_TIMEPOINTS_H <- c(0, 0.25, 1, 2, 4, 6, 12, 24, 48, 96, 168, 336, 504)
 # Generic species body weights used for all whole-animal clearance calculations.
 # Individual/subject-specific weights are intentionally not used.
 SPECIES_BW_KG <- c(Monkey = 3.5, Human = 70)
+
+# One-way target reference concentration sensitivity analysis. These are the
+# standard relative variation factors used by esqlabsR::sensitivityCalculation:
+# 0.1-1.0 in 0.1 increments and 2-10 in integer increments.
+TARGET_REF_SA_FACTORS <- c(seq(0.1, 1, by = 0.1), seq(2, 10, by = 1))
+TARGET_REF_PARAMETER_PATH <- "Target|Reference concentration"
+MAB_PLASMA_OUTPUT_PATH <-
+  "Organism|PeripheralVenousBlood|mAb|Plasma (Peripheral Venous Blood)"
+FORCE_RERUN_TARGET_REF_SA <- FALSE
 
 target_lookup <- read_target_lookup(c(
   file.path(datadir, "Monkey", "Parameters.xlsx"),
@@ -915,60 +925,3 @@ if (nrow(human_metrics_tbl) > 0) {
 
 if (nrow(human_metrics_tbl) == 0) message("No human simulation results found.")
 ```
-
-## Export to Excel
-
-```{r}
-#| label: save-metrics
-#| message: false
-#| output: false
-
-metrics_out <- bind_rows(metrics_tbl, human_metrics_tbl) %>%
-  arrange(Species, Target, Molecule, Dose) %>%
-  relocate(Species, Target, Molecule, Dose) %>%
-  rename(
-    `Dose (mg/kg)`       = Dose,
-    `Generic BW (kg)`    = BW_kg,
-    `Obs Cmax (ug/mL)`   = Obs_Cmax,
-    `Pred Cmax (ug/mL)`  = Pred_Cmax,
-    `Fold Error Cmax`    = FE_Cmax,
-    `Obs AUC0-28d (ug*h/mL)`  = Obs_AUC,
-    `Pred AUC0-28d (ug*h/mL)` = Pred_AUC,
-    `Fold Error AUC0-28d`     = FE_AUC,
-    `Obs AUCinf (ug*h/mL)` = Obs_AUCinf,
-    `Pred AUCinf (ug*h/mL)` = Pred_AUCinf,
-    `Fold Error AUCinf` = FE_AUCinf,
-    `Obs terminal CL (L/day)` = Obs_CL_L_day,
-    `Pred terminal CL (L/day)` = Pred_CL_L_day,
-    `Fold Error terminal CL` = FE_CL,
-    `Obs mean profile conc (ug/mL)` = Obs_mean_profile_conc,
-    `Pred mean profile conc (ug/mL)` = Pred_mean_profile_conc,
-    `Mean pointwise fold error` = Mean_pointwise_FE,
-    `GOF timepoints (n)` = GOF_timepoints_n
-  ) %>%
-  select(
-    Species, Target, Molecule, `Dose (mg/kg)`, `Generic BW (kg)`,
-    `Obs Cmax (ug/mL)`, `Pred Cmax (ug/mL)`, `Fold Error Cmax`,
-    `Obs AUC0-28d (ug*h/mL)`, `Pred AUC0-28d (ug*h/mL)`, `Fold Error AUC0-28d`,
-    `Obs AUCinf (ug*h/mL)`, `Pred AUCinf (ug*h/mL)`, `Fold Error AUCinf`,
-    `Obs terminal CL (L/day)`, `Pred terminal CL (L/day)`, `Fold Error terminal CL`,
-    `Obs mean profile conc (ug/mL)`, `Pred mean profile conc (ug/mL)`,
-    `Mean pointwise fold error`, `GOF timepoints (n)`
-  ) %>%
-  mutate(across(where(is.numeric), ~ round(.x, 2)))
-
-wb <- createWorkbook()
-for (species_label in c("Monkey", "Human")) {
-  sheet_name <- paste0(species_label, "_Metrics")
-  species_out <- metrics_out %>% filter(Species == species_label)
-  addWorksheet(wb, sheet_name)
-  writeData(wb, sheet_name, species_out)
-  setColWidths(wb, sheet_name, cols = seq_len(ncol(species_out)), widths = "auto")
-}
-
-out_xlsx <- file.path(figures_dir, "PK_Metrics_ObsPred.xlsx")
-saveWorkbook(wb, out_xlsx, overwrite = TRUE)
-message("Saved: ", out_xlsx)
-```
-
-

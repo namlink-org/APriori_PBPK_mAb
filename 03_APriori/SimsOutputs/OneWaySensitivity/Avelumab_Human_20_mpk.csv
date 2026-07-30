@@ -1,0 +1,7 @@
+"Scenario","Molecule","Species","Dose","Parameter","VariationFactor","ParameterValue","ParameterUnit","Pred_CL_L_day"
+"Avelumab_Human_20_mpk","Avelumab","Human",20,"Target reference concentration",0.1,6.09e-05,"µmol/l",0.23304980918016
+"Avelumab_Human_20_mpk","Avelumab","Human",20,"Target reference concentration",10,0.00609,"µmol/l",0.234284135284302
+"Avelumab_Human_20_mpk","Avelumab","Human",20,"kdeg",0.1,7.1e-05,"1/min",0.233051547137472
+"Avelumab_Human_20_mpk","Avelumab","Human",20,"kdeg",10,0.0071,"1/min",0.234263884907944
+"Avelumab_Human_20_mpk","Avelumab","Human",20,"kint",0.1,0.000416666666666667,"1/min",0.233161979954977
+"Avelumab_Human_20_mpk","Avelumab","Human",20,"kint",10,0.0416666666666667,"1/min",0.23316183578691

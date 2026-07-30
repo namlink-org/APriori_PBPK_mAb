@@ -1,0 +1,7 @@
+"Scenario","Molecule","Species","Dose","Parameter","VariationFactor","ParameterValue","ParameterUnit","Pred_CL_L_day"
+"Nivolumab_Monkey_10_mpk","Nivolumab","Monkey",10,"Target reference concentration",0.1,1.66e-06,"µmol/l",0.0375250557533832
+"Nivolumab_Monkey_10_mpk","Nivolumab","Monkey",10,"Target reference concentration",10,0.000166,"µmol/l",0.0375560246829936
+"Nivolumab_Monkey_10_mpk","Nivolumab","Monkey",10,"kdeg",0.1,4.5e-05,"1/min",0.037525221783572
+"Nivolumab_Monkey_10_mpk","Nivolumab","Monkey",10,"kdeg",10,0.0045,"1/min",0.0375440270948307
+"Nivolumab_Monkey_10_mpk","Nivolumab","Monkey",10,"kint",0.1,4.5e-05,"1/min",0.0375264761021396
+"Nivolumab_Monkey_10_mpk","Nivolumab","Monkey",10,"kint",10,0.0045,"1/min",0.037528324286597

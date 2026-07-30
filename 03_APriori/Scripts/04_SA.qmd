@@ -1,0 +1,794 @@
+---
+title: "One-way sensitivity analysis"
+format:
+  html:
+    code-fold: true
+    code-summary: "Show code"
+    self-contained: true
+editor: visual
+---
+
+# Set up
+
+This analysis varies target reference concentration, target-complex internalization rate (`kint`), and target degradation rate (`kdeg`) one parameter at a time. Each parameter is evaluated at 0.1- and 10-fold its a priori value for every configured monkey and human molecule-dose scenario. The already generated, unvaried scenario simulations are used as the 1-fold clearance reference; a 1-fold sensitivity simulation is not run.
+
+```{r}
+#| label: setup
+#| message: false
+#| warning: false
+
+rm(list = ls())
+
+library(tidyverse)
+library(data.table)
+library(scales)
+library(knitr)
+library(openxlsx)
+library(kableExtra)
+library(esqlabsR)
+
+AUC_END_H <- 28 * 24
+SPECIES_BW_KG <- c(Monkey = 3.5, Human = 70)
+SA_FACTORS <- c(0.1, 10)
+SA_PARAMETER_PATHS <- c(
+  "Target reference concentration" = "Target|Reference concentration",
+  "kint" = "Complex Internalization|kint",
+  "kdeg" = "Target degradation|kdeg"
+)
+MAB_PLASMA_OUTPUT_PATH <-
+  "Organism|PeripheralVenousBlood|mAb|Plasma (Peripheral Venous Blood)"
+FORCE_RERUN_SA <- FALSE
+
+results_dir <- "../SimsOutputs/SimulationResults"
+sa_output_dir <- "../SimsOutputs/OneWaySensitivity"
+figures_dir <- "../SimsOutputs/Figures"
+dir.create(sa_output_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(figures_dir, recursive = TRUE, showWarnings = FALSE)
+
+parse_scenario <- function(path) {
+  base <- tools::file_path_sans_ext(basename(path))
+  base <- sub("_mpk$", "", base)
+  parts <- strsplit(base, "_")[[1]]
+  n <- length(parts)
+
+  list(
+    Molecule = paste(parts[seq_len(n - 2)], collapse = "_"),
+    Species = parts[n - 1],
+    Dose = suppressWarnings(as.numeric(parts[n]))
+  )
+}
+
+mean_or_na <- function(x) {
+  x <- x[is.finite(x)]
+  if (length(x) == 0) NA_real_ else mean(x)
+}
+
+best_terminal_lambda_z <- function(time_h, conc, min_points = 3L) {
+  terminal_data <- tibble(
+    time_h = as.numeric(time_h),
+    conc = as.numeric(conc)
+  ) %>%
+    filter(is.finite(time_h), is.finite(conc), conc > 0) %>%
+    group_by(time_h) %>%
+    summarise(conc = mean(conc), .groups = "drop") %>%
+    arrange(time_h)
+
+  if (nrow(terminal_data) < min_points) return(NA_real_)
+
+  tmax_index <- which.max(terminal_data$conc)[1]
+  post_cmax <- terminal_data %>% slice(seq.int(tmax_index, n()))
+  if (nrow(post_cmax) < min_points) return(NA_real_)
+
+  x <- post_cmax$time_h
+  y <- log(post_cmax$conc)
+  total_n <- length(x)
+  suffix_sum <- function(z) rev(cumsum(rev(z)))
+  sx <- suffix_sum(x)
+  sy <- suffix_sum(y)
+  sxx <- suffix_sum(x * x)
+  syy <- suffix_sum(y * y)
+  sxy <- suffix_sum(x * y)
+  terminal_n <- seq.int(min_points, total_n)
+  start_index <- total_n - terminal_n + 1L
+  centered_xx <- sxx[start_index] - sx[start_index]^2 / terminal_n
+  centered_yy <- syy[start_index] - sy[start_index]^2 / terminal_n
+  centered_xy <-
+    sxy[start_index] - sx[start_index] * sy[start_index] / terminal_n
+  slope <- centered_xy / centered_xx
+  r2 <- pmin(
+    pmax((centered_xy^2) / (centered_xx * centered_yy), 0),
+    1
+  )
+  adjusted_r2 <- 1 - (1 - r2) * (terminal_n - 1) / (terminal_n - 2)
+
+  candidates <- tibble(slope, adjusted_r2, terminal_n) %>%
+    filter(is.finite(slope), slope < 0, is.finite(adjusted_r2)) %>%
+    arrange(desc(adjusted_r2), desc(terminal_n))
+
+  if (nrow(candidates) == 0) NA_real_ else -candidates$slope[1]
+}
+
+auc_inf_ug_h_ml <- function(time_h, conc, lambda_z) {
+  profile <- tibble(
+    time_h = as.numeric(time_h),
+    conc = as.numeric(conc)
+  ) %>%
+    filter(
+      is.finite(time_h), is.finite(conc),
+      time_h >= 0, time_h <= AUC_END_H, conc >= 0
+    ) %>%
+    group_by(time_h) %>%
+    summarise(conc = mean(conc), .groups = "drop") %>%
+    arrange(time_h)
+
+  if (nrow(profile) == 0 || !any(profile$conc > 0) || !is.finite(lambda_z)) {
+    return(NA_real_)
+  }
+  if (!any(profile$time_h == 0)) {
+    profile <- bind_rows(tibble(time_h = 0, conc = 0), profile) %>%
+      arrange(time_h)
+  }
+
+  positive <- profile %>% filter(conc > 0)
+  last_index <- which.max(positive$time_h)
+  c_last <- positive$conc[last_index]
+  last_time <- positive$time_h[last_index]
+  through_last <- profile %>% filter(time_h <= last_time)
+  dt <- diff(through_last$time_h)
+  c1 <- through_last$conc[-nrow(through_last)]
+  c2 <- through_last$conc[-1]
+  declining <- c2 < c1 & c1 > 0 & c2 > 0
+  auc_last <- sum(ifelse(
+    declining,
+    dt * (c1 - c2) / log(c1 / c2),
+    dt * (c1 + c2) / 2
+  ))
+
+  auc_last + c_last / lambda_z
+}
+
+terminal_clearance_l_day <- function(dose_mg_kg, body_weight_kg, auc_inf) {
+  if (
+    !is.finite(dose_mg_kg) || dose_mg_kg <= 0 ||
+      !is.finite(body_weight_kg) || body_weight_kg <= 0 ||
+      !is.finite(auc_inf) || auc_inf <= 0
+  ) {
+    return(NA_real_)
+  }
+
+  24 * dose_mg_kg * body_weight_kg / auc_inf
+}
+
+read_target_lookup <- function(files) {
+  read_one_sheet <- function(file, sheet) {
+    x <- openxlsx::read.xlsx(file, sheet = sheet, check.names = FALSE)
+    names(x) <- trimws(names(x))
+    normalized_names <- names(x) %>%
+      tolower() %>%
+      gsub("[^a-z0-9]+", " ", .) %>%
+      trimws()
+    molecule_col <- names(x)[match("drug name", normalized_names)]
+    target_col <- names(x)[match("target name", normalized_names)]
+
+    if (is.na(molecule_col) || is.na(target_col)) return(NULL)
+
+    x %>%
+      transmute(
+        Molecule = trimws(as.character(.data[[molecule_col]])),
+        Target = trimws(as.character(.data[[target_col]]))
+      ) %>%
+      filter(Molecule != "", Target != "") %>%
+      distinct()
+  }
+
+  map_dfr(files, function(file) {
+    map_dfr(openxlsx::getSheetNames(file), ~ read_one_sheet(file, .x))
+  }) %>%
+    distinct(Molecule, .keep_all = TRUE)
+}
+
+target_lookup <- read_target_lookup(c(
+  "../../01_Data/Monkey/Parameters.xlsx",
+  "../../01_Data/Human/Parameters_human.xlsx"
+))
+
+mw_lookup <- bind_rows(
+  read.csv(
+    "../../01_Data/Monkey/mAb_data_clean.csv",
+    stringsAsFactors = FALSE,
+    check.names = FALSE
+  ) %>% distinct(Molecule, MW = Molecular.Weight),
+  read.csv(
+    "../../01_Data/Human/mAb_data_human.csv",
+    stringsAsFactors = FALSE,
+    check.names = FALSE
+  ) %>% distinct(Molecule, MW = Molecular.Weight)
+) %>%
+  mutate(MW = as.numeric(MW)) %>%
+  distinct(Molecule, .keep_all = TRUE)
+```
+
+# Unvaried clearance reference
+
+Clearance for the 1-fold reference is calculated from the most recent set of previously generated scenario CSV files, using the same terminal-phase and AUC~inf~ methods as the sensitivity simulations.
+
+```{r}
+#| label: load-reference-clearance
+#| message: false
+#| warning: false
+
+simulation_result_folders <- list.dirs(
+  results_dir,
+  recursive = FALSE,
+  full.names = TRUE
+)
+if (length(simulation_result_folders) == 0) {
+  stop("No previously generated simulation result folders found in ", results_dir)
+}
+
+reference_results_dir <- simulation_result_folders[
+  which.max(file.mtime(simulation_result_folders))
+]
+reference_csv_files <- list.files(
+  reference_results_dir,
+  pattern = "\\.csv$",
+  full.names = TRUE
+)
+reference_csv_files <- reference_csv_files[
+  !grepl("_population\\.csv$", reference_csv_files)
+]
+
+read_reference_clearance <- function(file) {
+  meta <- parse_scenario(file)
+  raw <- data.table::fread(file, data.table = FALSE)
+  concentration_col <- grep(
+    "PeripheralVenousBlood.*\\|mAb\\|.*Plasma.*\\[",
+    names(raw),
+    value = TRUE
+  )[1]
+  if (is.na(concentration_col)) {
+    stop("mAb plasma concentration output not found in ", basename(file))
+  }
+
+  mw <- mw_lookup$MW[mw_lookup$Molecule == meta$Molecule][1]
+  bw <- unname(SPECIES_BW_KG[meta$Species])
+  if (!is.finite(mw) || !is.finite(bw)) {
+    stop("Missing molecular weight or body weight for ", basename(file))
+  }
+
+  raw %>%
+    transmute(
+      IndividualId = as.integer(IndividualId),
+      Time_h = as.numeric(`Time [min]`) / 60,
+      Conc_ug_mL = as.numeric(.data[[concentration_col]]) * mw / 1000
+    ) %>%
+    group_by(IndividualId) %>%
+    summarise(
+      lambda_z = best_terminal_lambda_z(Time_h, Conc_ug_mL),
+      AUCinf_ug_h_mL = auc_inf_ug_h_ml(Time_h, Conc_ug_mL, lambda_z),
+      CL_L_day = terminal_clearance_l_day(meta$Dose, bw, AUCinf_ug_h_mL),
+      .groups = "drop"
+    ) %>%
+    summarise(
+      Scenario = tools::file_path_sans_ext(basename(file)),
+      Molecule = meta$Molecule,
+      Species = meta$Species,
+      Dose = meta$Dose,
+      Baseline_CL_L_day = mean_or_na(CL_L_day)
+    )
+}
+
+reference_clearance <- map_dfr(
+  reference_csv_files,
+  read_reference_clearance
+) %>%
+  distinct(Scenario, .keep_all = TRUE)
+```
+
+# Run the one-way sensitivity simulations
+
+Only the 0.1- and 10-fold conditions are simulated. In each run, one parameter is varied and all remaining parameters retain their a priori values.
+
+```{r}
+#| label: run-one-way-sensitivity
+#| message: false
+#| warning: false
+
+sa_scenarios <- openxlsx::read.xlsx(
+  "../Configurations/Scenarios.xlsx",
+  sheet = "Scenarios",
+  check.names = FALSE
+) %>%
+  transmute(Scenario = as.character(Scenario_name)) %>%
+  mutate(
+    Meta = map(Scenario, ~ parse_scenario(paste0(.x, ".csv"))),
+    Molecule = map_chr(Meta, "Molecule"),
+    Species = map_chr(Meta, "Species"),
+    Dose = map_dbl(Meta, "Dose")
+  ) %>%
+  select(-Meta) %>%
+  filter(Species %in% c("Monkey", "Human")) %>%
+  left_join(target_lookup, by = "Molecule") %>%
+  arrange(Species, Target, Molecule, Dose)
+
+missing_reference <- anti_join(
+  sa_scenarios,
+  reference_clearance,
+  by = c("Scenario", "Molecule", "Species", "Dose")
+)
+if (nrow(missing_reference) > 0) {
+  stop(
+    "No unvaried reference simulation was found for: ",
+    paste(missing_reference$Scenario, collapse = ", ")
+  )
+}
+
+project_configuration <- createProjectConfiguration(
+  "../ProjectConfiguration.xlsx"
+)
+sa_run_options <- ospsuite::SimulationRunOptions$new()
+sa_run_options$checkForNegativeValues <- FALSE
+sa_run_options$numberOfCores <- min(
+  8L,
+  max(1L, parallel::detectCores() - 1L)
+)
+
+run_sa_scenario <- function(scenario_name, molecule, species, dose) {
+  cache_file <- file.path(sa_output_dir, paste0(scenario_name, ".csv"))
+
+  if (file.exists(cache_file) && !FORCE_RERUN_SA) {
+    cached <- read.csv(
+      cache_file,
+      stringsAsFactors = FALSE,
+      check.names = FALSE
+    )
+    cache_complete <- all(c(
+      "Scenario", "Molecule", "Species", "Dose", "Parameter",
+      "VariationFactor", "ParameterValue", "ParameterUnit", "Pred_CL_L_day"
+    ) %in% names(cached)) &&
+      setequal(cached$Parameter, names(SA_PARAMETER_PATHS)) &&
+      setequal(round(cached$VariationFactor, 10), round(SA_FACTORS, 10)) &&
+      nrow(cached) == length(SA_PARAMETER_PATHS) * length(SA_FACTORS)
+
+    if (cache_complete) return(as_tibble(cached))
+  }
+
+  mw <- mw_lookup$MW[mw_lookup$Molecule == molecule][1]
+  bw <- unname(SPECIES_BW_KG[species])
+  if (!is.finite(mw) || !is.finite(bw)) {
+    stop("Missing molecular weight or body weight for ", scenario_name)
+  }
+
+  scenario_configuration <- readScenarioConfigurationFromExcel(
+    scenarioNames = scenario_name,
+    projectConfiguration = project_configuration
+  )
+  scenario <- createScenarios(
+    scenarioConfigurations = scenario_configuration
+  )[[scenario_name]]
+
+  terminal_cl <- function(x, y) {
+    time_h <- as.numeric(x) / 60
+    conc_ug_ml <- as.numeric(y) * mw / 1000
+    lambda_z <- best_terminal_lambda_z(time_h, conc_ug_ml)
+    auc_inf <- auc_inf_ug_h_ml(time_h, conc_ug_ml, lambda_z)
+    terminal_clearance_l_day(dose, bw, auc_inf)
+  }
+
+  # sensitivityCalculation() always inserts a 1-fold run into each parameter
+  # range. Build the batches directly so that only 0.1- and 10-fold simulations
+  # are run; the existing scenario result remains the sole 1-fold reference.
+  simulation <- scenario$simulation
+  old_output_paths <- map_chr(
+    simulation$outputSelections$allOutputs,
+    "path"
+  )
+  clearOutputs(simulation = simulation)
+  addOutputs(
+    quantitiesOrPaths = MAB_PLASMA_OUTPUT_PATH,
+    simulation = simulation
+  )
+
+  parameter_paths <- unname(SA_PARAMETER_PATHS)
+  initial_values <- set_names(
+    map_dbl(
+      parameter_paths,
+      ~ as.numeric(getQuantityValuesByPath(
+        quantityPaths = .x,
+        simulation = simulation
+      ))
+    ),
+    parameter_paths
+  )
+  parameter_units <- set_names(
+    map_chr(parameter_paths, function(parameter_path) {
+      matched <- getAllParametersMatching(
+        paths = parameter_path,
+        container = simulation
+      )
+      if (length(matched) != 1) {
+        stop(
+          "Expected one match for ", parameter_path, " in ", scenario_name,
+          "; found ", length(matched)
+        )
+      }
+      as.character(matched[[1]]$unit)
+    }),
+    parameter_paths
+  )
+
+  is_formula <- map_lgl(
+    parameter_paths,
+    ~ isExplicitFormulaByPath(path = .x, simulation = simulation)
+  )
+  constant_paths <- parameter_paths[!is_formula]
+  formula_paths <- parameter_paths[is_formula]
+  result_id_map <- set_names(
+    map(parameter_paths, ~ set_names(vector("list", length(SA_FACTORS)),
+                                    as.character(SA_FACTORS))),
+    parameter_paths
+  )
+  simulation_batches <- list()
+
+  if (length(constant_paths) > 0) {
+    constant_batch <- createSimulationBatch(
+      simulation = simulation,
+      parametersOrPaths = constant_paths
+    )
+    for (parameter_path in constant_paths) {
+      for (variation_factor in SA_FACTORS) {
+        run_values <- initial_values[constant_paths]
+        run_values[[parameter_path]] <-
+          initial_values[[parameter_path]] * variation_factor
+        result_id_map[[parameter_path]][[as.character(variation_factor)]] <-
+          constant_batch$addRunValues(parameterValues = run_values)
+      }
+    }
+    simulation_batches <- c(simulation_batches, constant_batch)
+  }
+
+  for (parameter_path in formula_paths) {
+    formula_batch <- createSimulationBatch(
+      simulation = simulation,
+      parametersOrPaths = parameter_path
+    )
+    for (variation_factor in SA_FACTORS) {
+      result_id_map[[parameter_path]][[as.character(variation_factor)]] <-
+        formula_batch$addRunValues(
+          parameterValues =
+            initial_values[[parameter_path]] * variation_factor
+        )
+    }
+    simulation_batches <- c(simulation_batches, formula_batch)
+  }
+
+  batch_results <- runSimulationBatches(
+    simulationBatches = simulation_batches,
+    simulationRunOptions = sa_run_options,
+    stopIfFails = FALSE
+  )
+  names(batch_results) <- NULL
+  batch_results <- unlist(batch_results)
+
+  result <- map_dfr(parameter_paths, function(parameter_path) {
+    parameter_label <- names(SA_PARAMETER_PATHS)[
+      match(parameter_path, SA_PARAMETER_PATHS)
+    ]
+
+    map_dfr(SA_FACTORS, function(variation_factor) {
+      result_id <-
+        result_id_map[[parameter_path]][[as.character(variation_factor)]]
+      simulation_result <- purrr::pluck(batch_results, result_id)
+      if (is.null(simulation_result)) {
+        stop(
+          "Sensitivity simulation failed for ", scenario_name, ": ",
+          parameter_label, " at ", variation_factor, "-fold"
+        )
+      }
+
+      output <- simulationResultsToDataFrame(simulation_result) %>%
+        filter(paths == MAB_PLASMA_OUTPUT_PATH)
+      if (nrow(output) == 0) {
+        stop(
+          "Sensitivity output was not found for ", scenario_name, ": ",
+          parameter_label, " at ", variation_factor, "-fold"
+        )
+      }
+
+      tibble(
+        Scenario = scenario_name,
+        Molecule = molecule,
+        Species = species,
+        Dose = dose,
+        Parameter = parameter_label,
+        VariationFactor = variation_factor,
+        ParameterValue =
+          initial_values[[parameter_path]] * variation_factor,
+        ParameterUnit = parameter_units[[parameter_path]],
+        Pred_CL_L_day = terminal_cl(
+          output$Time,
+          output$simulationValues
+        )
+      )
+    })
+  }) %>%
+    arrange(Parameter, VariationFactor)
+
+  expected_runs <- tidyr::crossing(
+    Parameter = names(SA_PARAMETER_PATHS),
+    VariationFactor = SA_FACTORS
+  )
+  missing_runs <- anti_join(
+    expected_runs,
+    result,
+    by = c("Parameter", "VariationFactor")
+  )
+  if (nrow(missing_runs) > 0 || any(!is.finite(result$Pred_CL_L_day))) {
+    stop(
+      "Incomplete sensitivity results for ", scenario_name,
+      ". Expected exactly the 0.1- and 10-fold runs for all three parameters."
+    )
+  }
+
+  write.csv(result, cache_file, row.names = FALSE, na = "")
+  clearOutputs(simulation = simulation)
+  walk(
+    old_output_paths,
+    ~ addOutputs(quantitiesOrPaths = .x, simulation = simulation)
+  )
+  ospsuite::clearMemory()
+  result
+}
+
+sa_results <- pmap_dfr(
+  sa_scenarios %>% select(Scenario, Molecule, Species, Dose),
+  function(Scenario, Molecule, Species, Dose) {
+    message("One-way sensitivity analysis: ", Scenario)
+    run_sa_scenario(Scenario, Molecule, Species, Dose)
+  }
+)
+```
+
+# Clearance change from the unvaried simulations
+
+Percent delta in terminal clearance is calculated as
+`100 * (varied clearance / unvaried clearance - 1)`. The normalized
+sensitivity coefficient is
+`log(varied clearance / unvaried clearance) / log(variation factor)`.
+For display, 1 is added to this coefficient so that no sensitivity is centered
+at 1.
+
+```{r}
+#| label: clearance-change-table
+#| message: false
+#| warning: false
+
+sa_change_table <- sa_results %>%
+  left_join(
+    reference_clearance,
+    by = c("Scenario", "Molecule", "Species", "Dose")
+  ) %>%
+  left_join(target_lookup, by = "Molecule") %>%
+  mutate(
+    CL_Percent_Delta =
+      100 * (Pred_CL_L_day / Baseline_CL_L_day - 1),
+    Normalized_Sensitivity_Coefficient =
+      log(Pred_CL_L_day / Baseline_CL_L_day) / log(VariationFactor),
+    # Shift the conventional coefficient by 1 so that no sensitivity is
+    # centered at 1 rather than 0.
+    Normalized_Sensitivity_Index =
+      1 + Normalized_Sensitivity_Coefficient
+  ) %>%
+  transmute(
+    Species,
+    Target,
+    Molecule,
+    `Dose (mg/kg)` = Dose,
+    `Parameter varied` = Parameter,
+    `Variation (fold)` = VariationFactor,
+    `Varied parameter value` = ParameterValue,
+    `Parameter unit` = ParameterUnit,
+    `Reference terminal CL (L/day)` = Baseline_CL_L_day,
+    `Varied terminal CL (L/day)` = Pred_CL_L_day,
+    `Delta terminal CL (%)` = CL_Percent_Delta,
+    `Normalized sensitivity coefficient` =
+      Normalized_Sensitivity_Coefficient,
+    `Normalized sensitivity index (no sensitivity = 1)` =
+      Normalized_Sensitivity_Index
+  ) %>%
+  arrange(
+    Species,
+    Target,
+    Molecule,
+    `Dose (mg/kg)`,
+    `Parameter varied`,
+    `Variation (fold)`
+  )
+
+sa_tornado_table <- sa_change_table %>%
+  group_by(
+    Species,
+    Target,
+    Molecule,
+    `Parameter varied`,
+    `Variation (fold)`
+  ) %>%
+  summarise(
+    `Mean delta terminal CL (%)` =
+      mean_or_na(`Delta terminal CL (%)`),
+    `Mean normalized sensitivity coefficient` =
+      mean_or_na(`Normalized sensitivity coefficient`),
+    `Mean normalized sensitivity index (no sensitivity = 1)` =
+      1 + `Mean normalized sensitivity coefficient`,
+    `Doses averaged (n)` = sum(is.finite(`Delta terminal CL (%)`)),
+    .groups = "drop"
+  )
+
+write.csv(
+  sa_change_table,
+  file.path(sa_output_dir, "One_Way_Sensitivity_CL_Percent_Delta.csv"),
+  row.names = FALSE,
+  na = ""
+)
+write.csv(
+  sa_tornado_table,
+  file.path(sa_output_dir, "One_Way_Sensitivity_Mean_CL_Percent_Delta.csv"),
+  row.names = FALSE,
+  na = ""
+)
+
+sa_change_table %>%
+  mutate(across(where(is.numeric), ~ round(.x, 4))) %>%
+  kbl(
+    caption = paste(
+      "One-way sensitivity analysis by species, molecule, dose, parameter,",
+      "and variation. Delta clearance is relative to the previously generated",
+      "unvaried simulation."
+    ),
+    align = c("l", "l", "l", "r", "l", rep("r", 2), "l", rep("r", 5))
+  ) %>%
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed"),
+    full_width = TRUE,
+    font_size = 10
+  ) %>%
+  scroll_box(height = "600px")
+```
+
+# Tornado plot
+
+Bars show the mean normalized sensitivity index across doses for each molecule,
+species, parameter, and variation. An index of 1 indicates no sensitivity;
+distance from 1 indicates increasing sensitivity.
+
+```{r}
+#| label: tornado-plot
+#| message: false
+#| warning: false
+#| fig-width: 14
+#| fig-height: 12
+
+parameter_levels <- rev(names(SA_PARAMETER_PATHS))
+
+sa_tornado_plot_data <- sa_tornado_table %>%
+  mutate(
+    `Parameter varied` = factor(
+      `Parameter varied`,
+      levels = parameter_levels
+    ),
+    `Variation (fold)` = factor(
+      `Variation (fold)`,
+      levels = SA_FACTORS,
+      labels = paste0(SA_FACTORS, "x")
+    ),
+    `Normalized index deviation` =
+      `Mean normalized sensitivity index (no sensitivity = 1)` - 1,
+    Panel = paste(Species, Molecule, sep = " | ")
+  )
+
+maximum_index_deviation <- max(
+  abs(
+    sa_tornado_plot_data[[
+      "Mean normalized sensitivity index (no sensitivity = 1)"
+    ]] - 1
+  ),
+  na.rm = TRUE
+)
+if (!is.finite(maximum_index_deviation) || maximum_index_deviation == 0) {
+  maximum_index_deviation <- 0.1
+}
+
+sa_tornado_plot <- sa_tornado_plot_data %>%
+  ggplot(
+    aes(
+      x = `Normalized index deviation`,
+      y = `Parameter varied`,
+      fill = `Variation (fold)`
+    )
+  ) +
+  annotate(
+    "rect",
+    xmin = -0.1,
+    xmax = 0.1,
+    ymin = -Inf,
+    ymax = Inf,
+    fill = "grey92",
+    alpha = 0.7
+  ) +
+  geom_vline(xintercept = 0, colour = "grey35", linewidth = 0.55) +
+  geom_col(
+    position = position_dodge2(width = 0.8, preserve = "single"),
+    width = 0.68
+  ) +
+  facet_wrap(~ Panel, ncol = 4) +
+  scale_fill_manual(values = c("0.1x" = "#0072B2", "10x" = "#D55E00")) +
+  scale_x_continuous(
+    limits = c(-1, 1) * maximum_index_deviation * 1.05,
+    labels = function(x) label_number(accuracy = 0.01)(x + 1)
+  ) +
+  labs(
+    title = "One-way sensitivity of terminal clearance",
+    subtitle = paste(
+      "Mean log-normalized sensitivity across doses;",
+      "no sensitivity is centered at 1"
+    ),
+    x = "Mean normalized sensitivity index (1 + S)",
+    y = "Parameter varied",
+    fill = "Variation"
+  ) +
+  theme_bw(base_size = 10) +
+  theme(
+    strip.background = element_rect(fill = "grey93"),
+    strip.text = element_text(face = "bold", size = 8),
+    legend.position = "bottom",
+    panel.grid.minor = element_blank()
+  )
+
+tornado_plot_file <- file.path(
+  figures_dir,
+  "One_Way_Sensitivity_Tornado_Normalized_Index.png"
+)
+ggsave(
+  tornado_plot_file,
+  sa_tornado_plot,
+  width = 14,
+  height = 12,
+  dpi = 300
+)
+sa_tornado_plot
+```
+
+# Export tables
+
+```{r}
+#| label: export-sensitivity-tables
+#| message: false
+#| output: false
+
+workbook <- createWorkbook()
+
+addWorksheet(workbook, "Dose_Level_CL_Delta")
+writeData(workbook, "Dose_Level_CL_Delta", sa_change_table)
+setColWidths(
+  workbook,
+  "Dose_Level_CL_Delta",
+  cols = seq_len(ncol(sa_change_table)),
+  widths = "auto"
+)
+
+addWorksheet(workbook, "Mean_CL_Delta")
+writeData(workbook, "Mean_CL_Delta", sa_tornado_table)
+setColWidths(
+  workbook,
+  "Mean_CL_Delta",
+  cols = seq_len(ncol(sa_tornado_table)),
+  widths = "auto"
+)
+
+sensitivity_workbook <- file.path(
+  sa_output_dir,
+  "One_Way_Sensitivity_Analysis.xlsx"
+)
+saveWorkbook(workbook, sensitivity_workbook, overwrite = TRUE)
+message("Saved: ", sensitivity_workbook)
+```

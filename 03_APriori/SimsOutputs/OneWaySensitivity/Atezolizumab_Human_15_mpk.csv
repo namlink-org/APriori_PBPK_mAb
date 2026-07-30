@@ -1,0 +1,7 @@
+"Scenario","Molecule","Species","Dose","Parameter","VariationFactor","ParameterValue","ParameterUnit","Pred_CL_L_day"
+"Atezolizumab_Human_15_mpk","Atezolizumab","Human",15,"Target reference concentration",0.1,6.09e-05,"µmol/l",0.156205148741648
+"Atezolizumab_Human_15_mpk","Atezolizumab","Human",15,"Target reference concentration",10,0.00609,"µmol/l",0.157461397472007
+"Atezolizumab_Human_15_mpk","Atezolizumab","Human",15,"kdeg",0.1,7.1e-05,"1/min",0.156208132751822
+"Atezolizumab_Human_15_mpk","Atezolizumab","Human",15,"kdeg",10,0.0071,"1/min",0.157000099535364
+"Atezolizumab_Human_15_mpk","Atezolizumab","Human",15,"kint",0.1,0.00101,"1/min",0.156292584975132
+"Atezolizumab_Human_15_mpk","Atezolizumab","Human",15,"kint",10,0.101,"1/min",0.156323401378884

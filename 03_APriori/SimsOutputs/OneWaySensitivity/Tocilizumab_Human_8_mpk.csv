@@ -1,0 +1,7 @@
+"Scenario","Molecule","Species","Dose","Parameter","VariationFactor","ParameterValue","ParameterUnit","Pred_CL_L_day"
+"Tocilizumab_Human_8_mpk","Tocilizumab","Human",8,"Target reference concentration",0.1,1e-04,"µmol/l",0.292016363843247
+"Tocilizumab_Human_8_mpk","Tocilizumab","Human",8,"Target reference concentration",10,0.01,"µmol/l",1.41271295051539
+"Tocilizumab_Human_8_mpk","Tocilizumab","Human",8,"kdeg",0.1,0.000466666666666667,"1/min",0.295981019023946
+"Tocilizumab_Human_8_mpk","Tocilizumab","Human",8,"kdeg",10,0.0466666666666667,"1/min",1.30933805027059
+"Tocilizumab_Human_8_mpk","Tocilizumab","Human",8,"kint",0.1,0.000466666666666667,"1/min",0.633182429870898
+"Tocilizumab_Human_8_mpk","Tocilizumab","Human",8,"kint",10,0.0466666666666667,"1/min",0.699599696328225

@@ -1,0 +1,7 @@
+"Scenario","Molecule","Species","Dose","Parameter","VariationFactor","ParameterValue","ParameterUnit","Pred_CL_L_day"
+"Golimumab_Human_0.1_mpk","Golimumab","Human",0.1,"Target reference concentration",0.1,1e-07,"µmol/l",0.224453301781615
+"Golimumab_Human_0.1_mpk","Golimumab","Human",0.1,"Target reference concentration",10,1e-05,"µmol/l",0.224453301781615
+"Golimumab_Human_0.1_mpk","Golimumab","Human",0.1,"kdeg",0.1,0.000371666666666667,"1/min",0.224453301781615
+"Golimumab_Human_0.1_mpk","Golimumab","Human",0.1,"kdeg",10,0.0371666666666667,"1/min",0.224453301781615
+"Golimumab_Human_0.1_mpk","Golimumab","Human",0.1,"kint",0.1,0.00144333333333333,"1/min",0.224453301781615
+"Golimumab_Human_0.1_mpk","Golimumab","Human",0.1,"kint",10,0.144333333333333,"1/min",0.224453301781615

@@ -1,0 +1,7 @@
+"Scenario","Molecule","Species","Dose","Parameter","VariationFactor","ParameterValue","ParameterUnit","Pred_CL_L_day"
+"Nivolumab_Human_4_mpk","Nivolumab","Human",4,"Target reference concentration",0.1,7.138e-06,"µmol/l",0.231366181287052
+"Nivolumab_Human_4_mpk","Nivolumab","Human",4,"Target reference concentration",10,0.0007138,"µmol/l",0.231366181287052
+"Nivolumab_Human_4_mpk","Nivolumab","Human",4,"kdeg",0.1,4.5e-05,"1/min",0.231366181287052
+"Nivolumab_Human_4_mpk","Nivolumab","Human",4,"kdeg",10,0.0045,"1/min",0.231366181287052
+"Nivolumab_Human_4_mpk","Nivolumab","Human",4,"kint",0.1,4.5e-05,"1/min",0.231366181287052
+"Nivolumab_Human_4_mpk","Nivolumab","Human",4,"kint",10,0.0045,"1/min",0.231366181287052

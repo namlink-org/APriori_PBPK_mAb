@@ -1,0 +1,7 @@
+"Scenario","Molecule","Species","Dose","Parameter","VariationFactor","ParameterValue","ParameterUnit","Pred_CL_L_day"
+"Bevacizumab_Monkey_5_mpk","Bevacizumab","Monkey",5,"Target reference concentration",0.1,1.3e-06,"µmol/l",0.0362449714763064
+"Bevacizumab_Monkey_5_mpk","Bevacizumab","Monkey",5,"Target reference concentration",10,0.00013,"µmol/l",0.0422857101537373
+"Bevacizumab_Monkey_5_mpk","Bevacizumab","Monkey",5,"kdeg",0.1,8e-04,"1/min",0.0362542951131265
+"Bevacizumab_Monkey_5_mpk","Bevacizumab","Monkey",5,"kdeg",10,0.08,"1/min",0.0412558800810608
+"Bevacizumab_Monkey_5_mpk","Bevacizumab","Monkey",5,"kint",0.1,8e-04,"1/min",0.0369521929304293
+"Bevacizumab_Monkey_5_mpk","Bevacizumab","Monkey",5,"kint",10,0.08,"1/min",0.037044431317801

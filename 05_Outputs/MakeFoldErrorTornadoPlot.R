@@ -58,7 +58,7 @@ if (length(missing_files) > 0L) {
 }
 
 metric_columns <- c(
-  "Terminal CL" = "FE_terminal_CL",
+  "Clearance" = "FE_clearance",
   "AUC0-28d" = "FE_AUC0_28d",
   "Cmax" = "FE_Cmax"
 )
@@ -70,7 +70,7 @@ read_apriori_sheet <- function(sheet_name) {
       Species = as.character(Species),
       Molecule = as.character(Molecule),
       Dose_mg_kg = as.numeric(`Dose (mg/kg)`),
-      FE_terminal_CL = as.numeric(`Fold Error terminal CL`),
+      FE_clearance = as.numeric(`Fold Error terminal CL`),
       FE_AUC0_28d = as.numeric(`Fold Error AUC0-28d`),
       FE_Cmax = as.numeric(`Fold Error Cmax`)
     )
@@ -98,7 +98,7 @@ read_topdown_file <- function(path, expected_run) {
       Species = as.character(Species),
       Molecule = as.character(Molecule),
       Dose_mg_kg = as.numeric(`Dose (mg/kg)`),
-      FE_terminal_CL = as.numeric(`FE terminal CL`),
+      FE_clearance = as.numeric(`FE terminal CL`),
       FE_AUC0_28d = as.numeric(`FE AUC0-28d`),
       FE_Cmax = as.numeric(`FE Cmax`)
     )
@@ -206,7 +206,7 @@ png_device <- if (requireNamespace("ragg", quietly = TRUE)) {
 }
 
 metric_file_stubs <- c(
-  "Terminal CL" = "Terminal_CL",
+  "Clearance" = "Terminal_CL",
   "AUC0-28d" = "AUC0_28d",
   "Cmax" = "Cmax"
 )

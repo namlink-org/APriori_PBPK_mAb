@@ -1,0 +1,7 @@
+"Scenario","Molecule","Species","Dose","Parameter","VariationFactor","ParameterValue","ParameterUnit","Pred_CL_L_day"
+"Pembrolizumab_Monkey_0.3_mpk","Pembrolizumab","Monkey",0.3,"Target reference concentration",0.1,1.66e-06,"µmol/l",0.00645519981796638
+"Pembrolizumab_Monkey_0.3_mpk","Pembrolizumab","Monkey",0.3,"Target reference concentration",10,0.000166,"µmol/l",0.00678921044170758
+"Pembrolizumab_Monkey_0.3_mpk","Pembrolizumab","Monkey",0.3,"kdeg",0.1,4.5e-05,"1/min",0.00645631446938815
+"Pembrolizumab_Monkey_0.3_mpk","Pembrolizumab","Monkey",0.3,"kdeg",10,0.0045,"1/min",0.0066494463150922
+"Pembrolizumab_Monkey_0.3_mpk","Pembrolizumab","Monkey",0.3,"kint",0.1,4.5e-05,"1/min",0.00647401165155567
+"Pembrolizumab_Monkey_0.3_mpk","Pembrolizumab","Monkey",0.3,"kint",10,0.0045,"1/min",0.00648803032030615

@@ -1,0 +1,7 @@
+"Scenario","Molecule","Species","Dose","Parameter","VariationFactor","ParameterValue","ParameterUnit","Pred_CL_L_day"
+"Tocilizumab_Monkey_10_mpk","Tocilizumab","Monkey",10,"Target reference concentration",0.1,0.00022,"µmol/l",0.0396568647376272
+"Tocilizumab_Monkey_10_mpk","Tocilizumab","Monkey",10,"Target reference concentration",10,0.022,"µmol/l",0.106030793519521
+"Tocilizumab_Monkey_10_mpk","Tocilizumab","Monkey",10,"kdeg",0.1,0.000466666666666667,"1/min",0.0400214340540764
+"Tocilizumab_Monkey_10_mpk","Tocilizumab","Monkey",10,"kdeg",10,0.0466666666666667,"1/min",0.0977679620956658
+"Tocilizumab_Monkey_10_mpk","Tocilizumab","Monkey",10,"kint",0.1,0.000466666666666667,"1/min",0.0510290086267387
+"Tocilizumab_Monkey_10_mpk","Tocilizumab","Monkey",10,"kint",10,0.0466666666666667,"1/min",0.0540983371846624

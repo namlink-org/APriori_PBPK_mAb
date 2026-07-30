@@ -1,0 +1,7 @@
+"Scenario","Molecule","Species","Dose","Parameter","VariationFactor","ParameterValue","ParameterUnit","Pred_CL_L_day"
+"Avelumab_Monkey_5_mpk","Avelumab","Monkey",5,"Target reference concentration",0.1,6.09e-05,"µmol/l",0.036950822897327
+"Avelumab_Monkey_5_mpk","Avelumab","Monkey",5,"Target reference concentration",10,0.00609,"µmol/l",0.0415899209258714
+"Avelumab_Monkey_5_mpk","Avelumab","Monkey",5,"kdeg",0.1,7.1e-05,"1/min",0.0369662233994116
+"Avelumab_Monkey_5_mpk","Avelumab","Monkey",5,"kdeg",10,0.0071,"1/min",0.0412785066101314
+"Avelumab_Monkey_5_mpk","Avelumab","Monkey",5,"kint",0.1,0.000416666666666667,"1/min",0.0374771044835801
+"Avelumab_Monkey_5_mpk","Avelumab","Monkey",5,"kint",10,0.0416666666666667,"1/min",0.0374921475660559
